@@ -147,7 +147,7 @@ Home sensor가 없으므로 부팅할 때 모터의 물리 위치를 반드시 �
 
 ## 한글 매트릭스 표시
 
-전체 Unicode 글꼴이나 UTF-8 parser를 사용하지 않습니다. `matrix_display.cpp`에는 필요한 15개 음절만 8×8 row bitmap으로 들어 있고, 각 역은 `GlyphId` 배열을 직접 가리킵니다.
+전체 Unicode 글꼴이나 UTF-8 parser를 사용하지 않습니다. `matrix_display.cpp`에는 필요한 15개 음절만 8×8 row bitmap으로 들어 있고, 각 역은 `GlyphId` 배열을 직접 가리킵니다. 한글 bitmap은 8×8 전용 픽셀 폰트인 Dalmoori를 기반으로 하며 관련 고지는 `THIRD_PARTY_NOTICES.md`에 있습니다.
 
 - `신당`, `상왕십리`, `왕십리`, `한양대`: 32 pixel 안에서 정적 중앙 정렬
 - `동대문역사공원`: 56-column buffer를 만들고 32-column 창을 1 pixel씩 이동
@@ -157,9 +157,11 @@ FC-16 모듈의 조립 방향에 따라 글자가 좌우/상하 반전될 수 �
 
 ```cpp
 #define MATRIX_HARDWARE_TYPE MD_MAX72XX::FC16_HW
-constexpr bool MATRIX_REVERSE_COLUMNS = false;
+constexpr bool MATRIX_REVERSE_COLUMNS = true;
 constexpr bool MATRIX_FLIP_VERTICAL = false;
 ```
+
+SZH-EKAD-115은 `FC16_HW`, 장치 수 4가 맞습니다. MD_MAX72XX에서 FC-16 chain의 column 번호는 화면 오른쪽부터 증가하므로, 이 프로젝트의 일반적인 좌→우 좌표를 맞추기 위해 `MATRIX_REVERSE_COLUMNS=true`가 기본값입니다. 글자 순서까지 좌우가 뒤집혀 보이는 하드웨어 revision에서만 이 값을 바꾸십시오.
 
 ## Serial 디버그 명령
 

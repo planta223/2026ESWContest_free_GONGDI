@@ -65,8 +65,10 @@ constexpr uint32_t MATRIX_SCROLL_INTERVAL_MS = 60;
 constexpr uint32_t MATRIX_STATIC_DISPLAY_MS = 5000;
 constexpr uint8_t MATRIX_SCROLL_REPEAT = 2;
 
-// These two switches compensate for differently assembled 8x32 modules.
-constexpr bool MATRIX_REVERSE_COLUMNS = false;
+// MD_MAX72XX numbers this FC-16 chain from the rightmost physical column.
+// The renderer uses normal left-to-right screen coordinates, so translate
+// logical X to the library's descending column order.
+constexpr bool MATRIX_REVERSE_COLUMNS = true;
 constexpr bool MATRIX_FLIP_VERTICAL = false;
 
 // =============================================================
@@ -83,4 +85,3 @@ constexpr int32_t MOTOR_STEPS_PER_REV = 4096;
 constexpr float MOTOR_MAX_SPEED = 700.0F;
 constexpr float MOTOR_ACCELERATION = 350.0F;
 constexpr uint8_t STATION_POSITION_COUNT = 5;
-
