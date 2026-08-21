@@ -151,6 +151,7 @@ Home sensor가 없으므로 부팅할 때 모터의 물리 위치를 반드시 �
 
 - `신당`, `상왕십리`, `왕십리`, `한양대`: 32 pixel 안에서 정적 중앙 정렬
 - `동대문역사공원`: 56-column buffer를 만들고 32-column 창을 1 pixel씩 이동
+- 각 8×8 한글 글리프는 기본적으로 반시계 방향 90° 회전
 - 정적 표시 시간, scroll 간격, 반복 횟수는 모두 `config.h`에서 조정
 
 FC-16 모듈의 조립 방향에 따라 글자가 좌우/상하 반전될 수 있습니다. 이때 다음 설정만 바꿉니다.
@@ -159,7 +160,10 @@ FC-16 모듈의 조립 방향에 따라 글자가 좌우/상하 반전될 수 �
 #define MATRIX_HARDWARE_TYPE MD_MAX72XX::FC16_HW
 constexpr bool MATRIX_REVERSE_COLUMNS = true;
 constexpr bool MATRIX_FLIP_VERTICAL = false;
+constexpr bool MATRIX_ROTATE_GLYPHS_CCW = true;
 ```
+
+`MATRIX_ROTATE_GLYPHS_CCW=false`로 바꾸면 원래 글리프 방향으로 되돌릴 수 있습니다. 이 회전은 각 8×8 글자에 적용되므로 역명 순서와 8×32 scroll 방향은 유지됩니다.
 
 SZH-EKAD-115은 `FC16_HW`, 장치 수 4가 맞습니다. MD_MAX72XX에서 FC-16 chain의 column 번호는 화면 오른쪽부터 증가하므로, 이 프로젝트의 일반적인 좌→우 좌표를 맞추기 위해 `MATRIX_REVERSE_COLUMNS=true`가 기본값입니다. 글자 순서까지 좌우가 뒤집혀 보이는 하드웨어 revision에서만 이 값을 바꾸십시오.
 

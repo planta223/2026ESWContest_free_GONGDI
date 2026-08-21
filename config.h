@@ -71,6 +71,10 @@ constexpr uint8_t MATRIX_SCROLL_REPEAT = 2;
 constexpr bool MATRIX_REVERSE_COLUMNS = true;
 constexpr bool MATRIX_FLIP_VERTICAL = false;
 
+// Rotate each 8x8 Hangul glyph while keeping station character order and the
+// 32-column display layout unchanged.
+constexpr bool MATRIX_ROTATE_GLYPHS_CCW = true;
+
 // =============================================================
 // DFPlayer Mini
 // =============================================================

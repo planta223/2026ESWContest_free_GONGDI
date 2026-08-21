@@ -85,14 +85,32 @@ uint8_t glyphColumn(GlyphId glyph, uint8_t x) {
   }
 
   uint8_t column = 0;
-  const uint8_t rowMask = static_cast<uint8_t>(0x80U >> x);
-  for (uint8_t row = 0; row < MATRIX_HEIGHT; ++row) {
-    const uint8_t rowBits = pgm_read_byte(&GLYPH_ROWS[glyphIndex][row]);
-    if ((rowBits & rowMask) != 0) {
-      const uint8_t targetRow = MATRIX_FLIP_VERTICAL ? (MATRIX_HEIGHT - 1 - row) : row;
-      column |= static_cast<uint8_t>(1U << targetRow);
+
+  if (MATRIX_ROTATE_GLYPHS_CCW) {
+    // For a counter-clockwise rotation, destination column x is source row x.
+    // Source MSB (left pixel) becomes destination bit 7 (bottom pixel), so the
+    // stored row byte is already the correctly rotated output column.
+    column = pgm_read_byte(&GLYPH_ROWS[glyphIndex][x]);
+  } else {
+    const uint8_t rowMask = static_cast<uint8_t>(0x80U >> x);
+    for (uint8_t row = 0; row < MATRIX_HEIGHT; ++row) {
+      const uint8_t rowBits = pgm_read_byte(&GLYPH_ROWS[glyphIndex][row]);
+      if ((rowBits & rowMask) != 0) {
+        column |= static_cast<uint8_t>(1U << row);
+      }
     }
   }
+
+  if (MATRIX_FLIP_VERTICAL) {
+    uint8_t reversed = 0;
+    for (uint8_t bit = 0; bit < MATRIX_HEIGHT; ++bit) {
+      if ((column & static_cast<uint8_t>(1U << bit)) != 0) {
+        reversed |= static_cast<uint8_t>(1U << (MATRIX_HEIGHT - 1 - bit));
+      }
+    }
+    column = reversed;
+  }
+
   return column;
 }
 
