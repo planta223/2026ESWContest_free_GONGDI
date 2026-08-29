@@ -1,6 +1,6 @@
 # DotJabi — ESP32 지하철 점자·음성·진동 안내 프로토타입
 
-ESP32 기반 지하철 손잡이 부착형 안내 모듈입니다. 현재 외부 API 대신 Serial Monitor의 `1`~`5` 명령으로 서울 지하철 2호선 내선순환 5개 역의 도착 이벤트를 발생시킵니다.
+ESP32 기반 지하철 손잡이 부착형 안내 모듈입니다. Serial Monitor, 웹 원격 선택, 서울교통공사 시간표 API 자동 판정이 모두 `notifyStation(StationId)` 경계로 합쳐집니다.
 
 하나의 역 이벤트가 다음 출력을 각각 시작합니다.
 
@@ -24,12 +24,21 @@ esp32_braille/
 ├── audio.h/.cpp            # UART2 DFPlayer 제어
 ├── matrix_display.h/.cpp   # 전용 한글 glyph와 pixel scroll
 ├── button.h/.cpp           # polling debounce와 LED 타이머
-├── api.h/.cpp              # 향후 API를 위한 현재 stub
+├── api.h/.cpp              # background HTTP, 시간표 cache, AUTO 역 판정
+├── wifi_manager.h/.cpp     # Wi-Fi/NTP/HTTP/WebSocket와 command queue
+├── index_html.h            # PROGMEM 웹 디버깅 UI
+├── legacy/esp32_main.ino   # 이식 전 reference; sketch compile 대상에서 제외
+├── mp3/                    # DFPlayer용 0001~0005 음원
+├── doc/                    # 결선·핀아웃 참고 자료
+├── THIRD_PARTY_NOTICES.md
+├── LICENSES/
 ├── README.md
-└── build/                   # ESP32 Dev Module 컴파일 검증 산출물
+└── build/                  # 이전 ESP32 compile 산출물(소스 아님)
 ```
 
-Arduino IDE는 폴더와 대표 `.ino` 파일의 이름이 같아야 하므로 현재 작업 폴더에 맞춰 `esp32_braille.ino`를 사용합니다.
+Arduino IDE는 폴더와 대표 `.ino` 파일의 이름이 같아야 하므로 현재 작업 폴더에 맞춰 `esp32_braille.ino`를 사용합니다. `legacy/`는 sketch root나 `src/`가 아니므로 그 안의 중복 `setup()/loop()`는 빌드되지 않습니다.
+
+`wifi_manager`라는 파일명은 의도적입니다. Windows의 대소문자 비구분 파일 시스템에서 로컬 `wifi.h`는 ESP32 코어의 `<WiFi.h>`와 충돌합니다.
 
 ## 하드웨어
 
@@ -97,6 +106,11 @@ Arduino Library Manager에서 다음 정확한 이름으로 설치합니다.
 - `AccelStepper` by Mike McCauley
 - `DFRobotDFPlayerMini` by DFRobot
 - `MD_MAX72XX` by MajicDesigns
+- `ArduinoJson` by Benoit Blanchon
+- `ESP Async WebServer` by ESP32Async
+- `Async TCP` by ESP32Async
+
+`WiFi`, `HTTPClient`, `Network`, FreeRTOS와 SNTP/time API는 ESP32 board package에서 제공됩니다.
 
 권장 Arduino IDE 설정:
 
@@ -113,7 +127,7 @@ Arduino Library Manager에서 다음 정확한 이름으로 설치합니다.
 
 프로젝트 폴더를 통째로 연 뒤 `esp32_braille.ino`를 컴파일/업로드합니다. PlatformIO 전용 파일은 필요하지 않습니다.
 
-현재 소스는 ESP32 board package 3.3.11, AccelStepper 1.64.0, DFRobotDFPlayerMini 1.0.6, MD_MAX72XX 3.5.1 조합의 `ESP32 Dev Module` 대상으로 실제 컴파일을 통과했습니다. `build/`는 이 검증에서 생성된 산출물이며 소스 수정 뒤에는 Arduino IDE에서 다시 빌드하십시오.
+현재 소스는 ESP32 board package 3.3.11, AccelStepper 1.64.0, DFRobotDFPlayerMini 1.0.6, MD_MAX72XX 3.5.1, ArduinoJson 6.21.5, ESP Async WebServer 3.12.0, Async TCP 3.5.0 조합의 `ESP32 Dev Module` 대상으로 실제 컴파일을 통과했습니다.
 
 ## microSD 음원 배치
 
@@ -149,10 +163,12 @@ Home sensor가 없으므로 부팅할 때 모터의 물리 위치를 반드시 �
 
 전체 Unicode 글꼴이나 UTF-8 parser를 사용하지 않습니다. `matrix_display.cpp`에는 필요한 15개 음절만 8×8 row bitmap으로 들어 있고, 각 역은 `GlyphId` 배열을 직접 가리킵니다. 한글 bitmap은 8×8 전용 픽셀 폰트인 Dalmoori를 기반으로 하며 관련 고지는 `THIRD_PARTY_NOTICES.md`에 있습니다.
 
-- `신당`, `상왕십리`, `왕십리`, `한양대`: 32 pixel 안에서 정적 중앙 정렬
-- `동대문역사공원`: 56-column buffer를 만들고 32-column 창을 1 pixel씩 이동
+- 계산된 전체 폭이 32 pixel 이하인 역명: 정적 중앙 정렬
+- 계산된 전체 폭이 32 pixel을 초과하는 역명: 32-column 창을 1 pixel씩 이동
 - 각 8×8 한글 글리프는 기본적으로 반시계 방향 90° 회전
 - 정적 표시 시간, scroll 간격, 반복 횟수는 모두 `config.h`에서 조정
+
+`MATRIX_GLYPH_SPACING_CELLS`는 인접 글자 사이에만 `8 * n`개의 빈 column을 삽입합니다. 전체 폭은 `8*G + 8*n*(G-1)`이며 기본값 0은 기존 출력과 같습니다. scroll content는 RAM buffer로 펼치지 않고 필요한 column을 즉시 계산합니다.
 
 FC-16 모듈의 조립 방향에 따라 글자가 좌우/상하 반전될 수 있습니다. 이때 다음 설정만 바꿉니다.
 
@@ -221,14 +237,32 @@ MATRIX_SCROLL_INTERVAL_MS
 MATRIX_STATIC_DISPLAY_MS
 MATRIX_SCROLL_REPEAT
 MATRIX_INTENSITY
+MATRIX_GLYPH_SPACING_CELLS
 DFPLAYER_VOLUME
 MOTOR_STEPS_PER_REV
 MOTOR_MAX_SPEED
 MOTOR_ACCELERATION
+WIFI_SSID / WIFI_PASS
+WIFI_RECONNECT_INTERVAL_MS
+NTP_SERVER_1 / NTP_SERVER_2
+SUBWAY_API_BASE_URL / SUBWAY_API_KEY
+TRAIN_DIRECTION / STATION_WINDOW
+API_REFRESH_INTERVAL_MS
+STATUS_PUSH_INTERVAL
 ```
 
 모든 timer 비교는 unsigned `millis()` 차이를 사용하므로 약 49일 후 rollover에도 안전합니다. Serial 명령은 고정 크기 32-byte buffer를 사용하며 런타임 `String` 할당을 하지 않습니다.
 
-## 향후 API 연결
+## Wi-Fi, API와 웹 UI
 
-현재 `api.cpp`는 의도적으로 아무 외부 통신도 하지 않는 stub입니다. 출력 모듈은 입력 출처를 알지 못합니다. 향후 API 구현은 수신 데이터를 `StationId`로 변환하고 `station_notification.h`의 `notifyStation(station)`만 호출하면 됩니다. API 코드에서 matrix/audio/motor GPIO를 직접 제어하지 않는 구조를 유지하십시오.
+Wi-Fi 연결과 NTP는 setup에서 기다리지 않고 비동기로 진행됩니다. `api.cpp`의 FreeRTOS worker만 5개 역의 HTTP 요청과 JSON 파싱을 수행하고, 성공한 전체 cache를 이중 버퍼로 한 번에 공개합니다. worker는 `notifyStation()`이나 HW 모듈을 호출하지 않습니다. 메인 `apiUpdate()`가 매초 cache와 현재 시각을 비교하고 역이 바뀌는 edge에서만 `notifyStation()`을 호출합니다.
+
+웹 UI는 `http://<ESP32-IP>/`의 `INDEX_HTML`이며 WebSocket endpoint는 `/ws`입니다.
+
+```json
+{"cmd":"station","value":0}
+{"cmd":"auto"}
+{"cmd":"refresh"}
+```
+
+WebSocket callback은 JSON을 고정 길이 FreeRTOS queue에 넣기만 합니다. `wifiUpdate()`가 메인 loop에서 `station`을 REMOTE 안내로 실행하고, `auto`로 API 자동 판정에 복귀하며, `refresh`로 background cache 갱신을 요청합니다. ACK는 `{"type":"ack",...}`이고 상태는 기존 `type=status`, `motor`, `speaker`, `vibration`, `button`, `activeIdx`, `mode`, `monitor`, `station` 필드를 유지하면서 `matrix`, `wifi`, `timetableReady`, `refreshing`을 추가합니다. `speaker`는 재생 여부가 아니라 실제 제공 가능한 `audioIsReady()` 즉 DFPlayer 준비 상태입니다.

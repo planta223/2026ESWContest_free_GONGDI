@@ -59,7 +59,14 @@ const uint8_t GLYPH_ROWS[static_cast<uint8_t>(GlyphId::COUNT)][8] PROGMEM = {
 };
 
 constexpr uint8_t GLYPH_WIDTH = 8;
-constexpr uint8_t MAX_CONTENT_COLUMNS = MAX_STATION_GLYPHS * GLYPH_WIDTH;
+constexpr size_t GLYPH_SPACING_COLUMNS =
+    static_cast<size_t>(MATRIX_GLYPH_SPACING_CELLS) * GLYPH_WIDTH;
+constexpr size_t MAX_CONTENT_COLUMNS =
+    static_cast<size_t>(MAX_STATION_GLYPHS) * GLYPH_WIDTH
+    + static_cast<size_t>(MAX_STATION_GLYPHS - 1) * GLYPH_SPACING_COLUMNS;
+
+static_assert(MAX_CONTENT_COLUMNS <= INT32_MAX,
+              "Matrix text width must fit the signed scroll coordinate");
 
 MD_MAX72XX matrix(
     MATRIX_HARDWARE_TYPE,
@@ -71,9 +78,9 @@ MD_MAX72XX matrix(
 enum class DisplayMode : uint8_t { IDLE, STATIC, SCROLLING };
 
 DisplayMode mode = DisplayMode::IDLE;
-uint8_t contentColumns[MAX_CONTENT_COLUMNS] = {};
-uint8_t contentWidth = 0;
-int16_t scrollOffset = 0;
+const StationInfo* scrollingStation = nullptr;
+size_t contentWidth = 0;
+int32_t scrollOffset = 0;
 uint8_t scrollCompleted = 0;
 uint32_t lastFrameAt = 0;
 uint32_t staticStartedAt = 0;
@@ -114,6 +121,24 @@ uint8_t glyphColumn(GlyphId glyph, uint8_t x) {
   return column;
 }
 
+size_t textWidth(const StationInfo& info) {
+  if (info.glyphCount == 0) {
+    return 0;
+  }
+  return static_cast<size_t>(info.glyphCount) * GLYPH_WIDTH
+         + static_cast<size_t>(info.glyphCount - 1) * GLYPH_SPACING_COLUMNS;
+}
+
+uint8_t textColumn(const StationInfo& info, size_t textX) {
+  const size_t glyphStride = GLYPH_WIDTH + GLYPH_SPACING_COLUMNS;
+  const size_t glyphIndex = textX / glyphStride;
+  const size_t columnInStride = textX % glyphStride;
+  if (glyphIndex >= info.glyphCount || columnInStride >= GLYPH_WIDTH) {
+    return 0;
+  }
+  return glyphColumn(info.glyphs[glyphIndex], static_cast<uint8_t>(columnInStride));
+}
+
 void writePhysicalColumn(uint8_t logicalColumn, uint8_t value) {
   if (logicalColumn >= MATRIX_WIDTH) {
     return;
@@ -132,39 +157,28 @@ void endFrame() {
   matrix.control(MD_MAX72XX::UPDATE, MD_MAX72XX::ON);
 }
 
-void renderStatic(const StationInfo& info) {
-  const uint8_t textWidth = info.glyphCount * GLYPH_WIDTH;
-  const uint8_t leftPadding = textWidth < MATRIX_WIDTH ? (MATRIX_WIDTH - textWidth) / 2 : 0;
+void renderStatic(const StationInfo& info, size_t width) {
+  const size_t leftPadding = width < MATRIX_WIDTH ? (MATRIX_WIDTH - width) / 2 : 0;
 
   beginFrame();
   for (uint8_t screenX = 0; screenX < MATRIX_WIDTH; ++screenX) {
     uint8_t value = 0;
-    if (screenX >= leftPadding && screenX < leftPadding + textWidth) {
-      const uint8_t textX = screenX - leftPadding;
-      value = glyphColumn(info.glyphs[textX / GLYPH_WIDTH], textX % GLYPH_WIDTH);
+    if (screenX >= leftPadding && screenX < leftPadding + width) {
+      value = textColumn(info, static_cast<size_t>(screenX) - leftPadding);
     }
     writePhysicalColumn(screenX, value);
   }
   endFrame();
 }
 
-void buildScrollContent(const StationInfo& info) {
-  contentWidth = 0;
-  for (uint8_t glyphIndex = 0;
-       glyphIndex < info.glyphCount && contentWidth <= MAX_CONTENT_COLUMNS - GLYPH_WIDTH;
-       ++glyphIndex) {
-    for (uint8_t x = 0; x < GLYPH_WIDTH; ++x) {
-      contentColumns[contentWidth++] = glyphColumn(info.glyphs[glyphIndex], x);
-    }
-  }
-}
-
 void renderScrollFrame() {
   beginFrame();
   for (uint8_t screenX = 0; screenX < MATRIX_WIDTH; ++screenX) {
-    const int16_t sourceX = scrollOffset + screenX;
-    const uint8_t value = sourceX >= 0 && sourceX < contentWidth
-                              ? contentColumns[sourceX]
+    const int32_t sourceX = scrollOffset + screenX;
+    const uint8_t value = scrollingStation != nullptr
+                                  && sourceX >= 0
+                                  && static_cast<size_t>(sourceX) < contentWidth
+                              ? textColumn(*scrollingStation, static_cast<size_t>(sourceX))
                               : 0;
     writePhysicalColumn(screenX, value);
   }
@@ -198,17 +212,21 @@ void matrixShowStation(StationId station) {
 #endif
 
   const uint32_t now = millis();
-  if (info->glyphCount <= MATRIX_WIDTH / GLYPH_WIDTH) {
-    renderStatic(*info);
+  const size_t width = textWidth(*info);
+  if (width <= MATRIX_WIDTH) {
+    scrollingStation = nullptr;
+    contentWidth = width;
+    renderStatic(*info, width);
     staticStartedAt = now;
     mode = DisplayMode::STATIC;
     return;
   }
 
-  // Long names are flattened into one column buffer. The 32-column display
-  // window then advances over it by exactly one pixel on each timed frame.
-  buildScrollContent(*info);
-  scrollOffset = -static_cast<int16_t>(MATRIX_WIDTH);
+  // Columns are generated from the glyph table on demand, so larger spacing
+  // values do not require a proportionally larger RAM buffer.
+  scrollingStation = info;
+  contentWidth = width;
+  scrollOffset = -static_cast<int32_t>(MATRIX_WIDTH);
   scrollCompleted = 0;
   lastFrameAt = now;
   mode = DisplayMode::SCROLLING;
@@ -235,7 +253,7 @@ void matrixUpdate() {
   renderScrollFrame();
 
   // source offset == contentWidth is the first completely blank exit frame.
-  if (scrollOffset >= contentWidth) {
+  if (scrollOffset >= static_cast<int32_t>(contentWidth)) {
     ++scrollCompleted;
     const uint8_t repeatTarget = MATRIX_SCROLL_REPEAT == 0 ? 1 : MATRIX_SCROLL_REPEAT;
     if (scrollCompleted >= repeatTarget) {
@@ -244,13 +262,15 @@ void matrixUpdate() {
       Serial.println(F("[MATRIX] Scroll complete"));
 #endif
     } else {
-      scrollOffset = -static_cast<int16_t>(MATRIX_WIDTH);
+      scrollOffset = -static_cast<int32_t>(MATRIX_WIDTH);
     }
   }
 }
 
 void matrixClear() {
   matrix.clear();
+  scrollingStation = nullptr;
+  contentWidth = 0;
   mode = DisplayMode::IDLE;
 }
 

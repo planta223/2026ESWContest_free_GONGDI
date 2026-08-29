@@ -13,6 +13,7 @@
 #include "station_data.h"
 #include "station_notification.h"
 #include "vibration.h"
+#include "wifi_manager.h"
 
 namespace {
 
@@ -252,6 +253,11 @@ void printStatus() {
                 static_cast<long>(motorCurrentPosition()),
                 static_cast<long>(motorTargetPosition()),
                 motorIsMoving() ? "MOVING" : "IDLE");
+  Serial.printf("Wi-Fi          : %s\n", wifiIsConnected() ? "CONNECTED" : "DISCONNECTED");
+  Serial.printf("API mode       : %s\n", apiIsAutoMode() ? "AUTO" : "REMOTE");
+  Serial.printf("Timetable      : %s%s\n",
+                apiIsTimetableReady() ? "READY" : "NOT READY",
+                apiIsRefreshing() ? " / REFRESHING" : "");
 }
 
 }  // namespace
@@ -260,10 +266,15 @@ void notifyStation(StationId station) {
   runStationNotification(station);
 }
 
+StationId currentStationId() {
+  return currentStation;
+}
+
 void setup() {
   Serial.begin(SERIAL_BAUD_RATE);
   const uint32_t serialWaitStartedAt = millis();
-  while (!Serial && static_cast<uint32_t>(millis() - serialWaitStartedAt) < 1500) {
+  while (!Serial
+         && static_cast<uint32_t>(millis() - serialWaitStartedAt) < SERIAL_READY_WAIT_MS) {
     yield();
   }
 
@@ -275,6 +286,7 @@ void setup() {
   buttonBegin();
   matrixBegin();
   audioBegin();
+  wifiBegin();
   apiBegin();
 
   Serial.println(F("[SYSTEM] Ready - enter 1..5 or 'help'"));
@@ -282,6 +294,7 @@ void setup() {
 
 void loop() {
   handleSerialInput();
+  wifiUpdate();
   apiUpdate();
 
   buttonUpdate();

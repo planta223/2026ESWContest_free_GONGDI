@@ -36,6 +36,7 @@ struct StationInfo {
   StationId id;
   const char* name;
   const char* debugName;
+  const char* subwayCode;
   uint8_t audioTrack;
   bool vibrationEnabled;
   int32_t motorTargetStep;
@@ -50,4 +51,3 @@ const StationInfo* getStationInfo(StationId station);
 const StationInfo* getStationInfoByNumber(uint8_t number);  // Serial numbers 1..5
 StationId stationIdFromNumber(uint8_t number);
 uint8_t stationNumber(StationId station);
-
