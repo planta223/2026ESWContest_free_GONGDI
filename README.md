@@ -168,7 +168,7 @@ Home sensor가 없으므로 부팅할 때 모터의 물리 위치를 반드시 �
 - 각 8×8 한글 글리프는 기본적으로 반시계 방향 90° 회전
 - 정적 표시 시간, scroll 간격, 반복 횟수는 모두 `config.h`에서 조정
 
-`MATRIX_GLYPH_SPACING_CELLS`는 인접 글자 사이에만 `8 * n`개의 빈 column을 삽입합니다. 전체 폭은 `8*G + 8*n*(G-1)`이며 기본값 0은 기존 출력과 같습니다. scroll content는 RAM buffer로 펼치지 않고 필요한 column을 즉시 계산합니다.
+`MATRIX_GLYPH_SPACING_CELLS`는 인접 글자 사이에만 `n`개의 빈 pixel column을 삽입합니다. 즉 높이 8 pixel인 간격 영역의 크기는 `8×n`이고 전체 폭은 `8*G + n*(G-1)`입니다. 값 0은 기존의 간격 없는 출력과 같습니다. scroll content는 RAM buffer로 펼치지 않고 필요한 column을 즉시 계산합니다.
 
 FC-16 모듈의 조립 방향에 따라 글자가 좌우/상하 반전될 수 있습니다. 이때 다음 설정만 바꿉니다.
 

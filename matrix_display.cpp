@@ -60,7 +60,7 @@ const uint8_t GLYPH_ROWS[static_cast<uint8_t>(GlyphId::COUNT)][8] PROGMEM = {
 
 constexpr uint8_t GLYPH_WIDTH = 8;
 constexpr size_t GLYPH_SPACING_COLUMNS =
-    static_cast<size_t>(MATRIX_GLYPH_SPACING_CELLS) * GLYPH_WIDTH;
+    static_cast<size_t>(MATRIX_GLYPH_SPACING_CELLS);
 constexpr size_t MAX_CONTENT_COLUMNS =
     static_cast<size_t>(MAX_STATION_GLYPHS) * GLYPH_WIDTH
     + static_cast<size_t>(MAX_STATION_GLYPHS - 1) * GLYPH_SPACING_COLUMNS;

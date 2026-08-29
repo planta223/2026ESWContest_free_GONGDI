@@ -18,8 +18,8 @@
 // Wi-Fi, NTP and web debug UI
 // Time synchronization starts asynchronously; setup() never waits for it.
 // =============================================================
-constexpr char WIFI_SSID[] = "braille_handle_wifi";
-constexpr char WIFI_PASS[] = "12345678";
+constexpr char WIFI_SSID[] = "kbhot";
+constexpr char WIFI_PASS[] = "00000001";
 constexpr uint32_t WIFI_RECONNECT_INTERVAL_MS = 10000;
 
 constexpr int32_t NTP_GMT_OFFSET_SEC = 9 * 60 * 60;  // Korea Standard Time
@@ -107,9 +107,10 @@ constexpr uint32_t MATRIX_SCROLL_INTERVAL_MS = 60;
 constexpr uint32_t MATRIX_STATIC_DISPLAY_MS = 5000;
 constexpr uint8_t MATRIX_SCROLL_REPEAT = 2;
 
-// Number of blank 8-column cells inserted only between adjacent glyphs.
-// 0 preserves the original tightly packed 8x8-glyph rendering.
-constexpr uint8_t MATRIX_GLYPH_SPACING_CELLS = 0;
+// Number of blank pixel columns inserted only between adjacent 8x8 glyphs.
+// Despite the legacy CELLS name, 1 means one column, 2 means two columns, etc.
+// 0 preserves the original tightly packed rendering.
+constexpr uint8_t MATRIX_GLYPH_SPACING_CELLS = 1;
 
 // MD_MAX72XX numbers this FC-16 chain from the rightmost physical column.
 // The renderer uses normal left-to-right screen coordinates, so translate
@@ -119,7 +120,7 @@ constexpr bool MATRIX_FLIP_VERTICAL = false;
 
 // Rotate each 8x8 Hangul glyph while keeping station character order and the
 // 32-column display layout unchanged.
-constexpr bool MATRIX_ROTATE_GLYPHS_CCW = true;
+constexpr bool MATRIX_ROTATE_GLYPHS_CCW = false;
 
 // =============================================================
 // DFPlayer Mini

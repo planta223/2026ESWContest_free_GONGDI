@@ -244,6 +244,7 @@ void wifiBegin() {
       &commandQueueStorage);
 
   WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   lastReconnectAt = millis();
 
@@ -287,9 +288,12 @@ void wifiUpdate() {
   if (!connected
       && static_cast<uint32_t>(now - lastReconnectAt) >= WIFI_RECONNECT_INTERVAL_MS) {
     lastReconnectAt = now;
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
 #if DEBUG_WIFI
-    Serial.println(F("[WIFI] Reconnect requested"));
+    // ESP32 core 3.x performs reconnects from its Wi-Fi event handler when
+    // auto-reconnect is enabled. Calling begin() or reconnect() here races that
+    // in-progress connection and produces "sta is connecting" errors.
+    Serial.printf("[WIFI] Waiting for auto-reconnect (status=%d)\n",
+                  static_cast<int>(WiFi.status()));
 #endif
   }
 
