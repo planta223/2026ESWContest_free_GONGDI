@@ -255,6 +255,18 @@ void printStatus() {
                 motorIsMoving() ? "MOVING" : "IDLE");
   Serial.printf("Wi-Fi          : %s\n", wifiIsConnected() ? "CONNECTED" : "DISCONNECTED");
   Serial.printf("API mode       : %s\n", apiIsAutoMode() ? "AUTO" : "REMOTE");
+  const uint16_t trackedTrain = apiTrackedTrainNumber();
+  if (!apiIsAutoMode()) {
+    Serial.println(F("API train      : INACTIVE"));
+  } else if (trackedTrain == 0) {
+    Serial.printf("API train      : WAITING AT STATION %u\n",
+                  AUTO_ROUTE_START_STATION_NUMBER);
+  } else if (apiIsRouteComplete()) {
+    Serial.printf("API train      : %u (ROUTE COMPLETE)\n", trackedTrain);
+  } else {
+    Serial.printf("API train      : %u / NEXT STATION %u\n",
+                  trackedTrain, apiNextStationNumber());
+  }
   Serial.printf("Timetable      : %s%s\n",
                 apiIsTimetableReady() ? "READY" : "NOT READY",
                 apiIsRefreshing() ? " / REFRESHING" : "");

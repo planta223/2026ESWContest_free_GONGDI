@@ -138,7 +138,7 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
 </div>
 
 <script>
-  // 5개 역 (인덱스 0~4 = 역코드 0205~0209)
+  // 5개 역 (인덱스 0~4 = 외부코드 205~209)
   const STATIONS = ["동대문역사공원","신당","상왕십리","왕십리","한양대"];
 
   const ws = new WebSocket(`ws://${location.host}/ws`);

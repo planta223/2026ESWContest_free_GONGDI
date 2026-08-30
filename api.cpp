@@ -18,12 +18,23 @@ namespace {
 
 constexpr uint32_t SECONDS_PER_DAY = 24UL * 60UL * 60UL;
 constexpr size_t API_URL_RESERVE_SIZE = 192;
-constexpr size_t API_FILTER_JSON_CAPACITY = 256;
+constexpr size_t API_FILTER_JSON_CAPACITY = 384;
+constexpr uint16_t INVALID_TRAIN_NUMBER = 0;
+
+static_assert(AUTO_ROUTE_START_STATION_NUMBER >= 1
+                  && AUTO_ROUTE_START_STATION_NUMBER <= STATION_COUNT,
+              "AUTO route start station must be in the station table");
 
 struct TimetableCache {
   uint32_t arrivalSeconds[STATION_COUNT][MAX_TIMES];
+  uint16_t trainNumbers[STATION_COUNT][MAX_TIMES];
   uint16_t arrivalCount[STATION_COUNT];
   bool ready;
+};
+
+struct TimetableMatch {
+  StationId station;
+  uint16_t trainNumber;
 };
 
 TimetableCache timetableCaches[2] = {};
@@ -39,7 +50,9 @@ volatile uint32_t lastSuccessfulRefreshAt = 0;
 
 bool autoMode = true;
 StationId detectedStation = StationId::INVALID;
-StationId lastEvaluatedStation = StationId::INVALID;
+uint16_t trackedTrainNumber = INVALID_TRAIN_NUMBER;
+uint8_t nextStationIndex = AUTO_ROUTE_START_STATION_NUMBER - 1;
+bool routeComplete = false;
 uint32_t lastStationCheckAt = 0;
 
 bool timeIsReady() {
@@ -83,6 +96,22 @@ bool parseArrivalTime(const char* value, uint32_t& seconds) {
   return true;
 }
 
+bool parseTrainNumber(const char* value, uint16_t& trainNumber) {
+  if (value == nullptr || *value == '\0') {
+    return false;
+  }
+
+  char* end = nullptr;
+  const unsigned long parsed = strtoul(value, &end, 10);
+  if (end == value || *end != '\0'
+      || parsed == INVALID_TRAIN_NUMBER || parsed > UINT16_MAX) {
+    return false;
+  }
+
+  trainNumber = static_cast<uint16_t>(parsed);
+  return true;
+}
+
 bool fetchTimetable(uint8_t stationIndex,
                     uint8_t week,
                     TimetableCache& destination) {
@@ -110,6 +139,11 @@ bool fetchTimetable(uint8_t stationIndex,
   url += '/';
 
   HTTPClient http;
+  // ArduinoJson reads the HTTPClient stream directly to avoid buffering the
+  // roughly 70 KB response in a String.  The Seoul API uses chunked transfer
+  // encoding for HTTP/1.1, but getStream() exposes those chunk frames.  Request
+  // HTTP/1.0 so the server returns a connection-delimited JSON body instead.
+  http.useHTTP10(true);
   http.setTimeout(API_HTTP_TIMEOUT_MS);
   if (!http.begin(url)) {
 #if DEBUG_API
@@ -129,6 +163,7 @@ bool fetchTimetable(uint8_t stationIndex,
 
   StaticJsonDocument<API_FILTER_JSON_CAPACITY> filter;
   filter[SUBWAY_API_SERVICE]["row"][0]["ARRIVETIME"] = true;
+  filter[SUBWAY_API_SERVICE]["row"][0]["TRAIN_NO"] = true;
   DynamicJsonDocument document(API_JSON_DOCUMENT_CAPACITY);
   const DeserializationError error = deserializeJson(
       document,
@@ -157,9 +192,12 @@ bool fetchTimetable(uint8_t stationIndex,
       break;
     }
     uint32_t seconds = 0;
-    if (parseArrivalTime(row["ARRIVETIME"] | "", seconds)) {
-      destination.arrivalSeconds[stationIndex]
-                                    [destination.arrivalCount[stationIndex]++] = seconds;
+    uint16_t trainNumber = INVALID_TRAIN_NUMBER;
+    if (parseArrivalTime(row["ARRIVETIME"] | "", seconds)
+        && parseTrainNumber(row["TRAIN_NO"] | "", trainNumber)) {
+      const uint16_t arrivalIndex = destination.arrivalCount[stationIndex]++;
+      destination.arrivalSeconds[stationIndex][arrivalIndex] = seconds;
+      destination.trainNumbers[stationIndex][arrivalIndex] = trainNumber;
     }
   }
   http.end();
@@ -272,37 +310,60 @@ uint32_t circularTimeDifference(uint32_t lhs, uint32_t rhs) {
   return difference;
 }
 
-StationId findCurrentStation(uint32_t nowSeconds) {
+TimetableMatch findClosestTimetableMatch(uint32_t nowSeconds,
+                                         uint16_t requiredTrainNumber) {
   if (cacheMutex == nullptr) {
-    return StationId::INVALID;
+    return {StationId::INVALID, INVALID_TRAIN_NUMBER};
   }
 
   StationId bestStation = StationId::INVALID;
+  uint16_t bestTrainNumber = INVALID_TRAIN_NUMBER;
   uint32_t bestDifference = UINT32_MAX;
 
   xSemaphoreTake(cacheMutex, portMAX_DELAY);
   const TimetableCache& cache = timetableCaches[activeCacheIndex];
   if (cache.ready) {
-    // Higher station codes are visited first and retain exact ties, matching
-    // the legacy AUTO-mode priority policy.
-    for (int stationIndex = STATION_COUNT - 1; stationIndex >= 0; --stationIndex) {
+    const uint8_t firstStationIndex = requiredTrainNumber == INVALID_TRAIN_NUMBER
+                                          ? AUTO_ROUTE_START_STATION_NUMBER - 1
+                                          : 0;
+    const uint8_t stationLimit = requiredTrainNumber == INVALID_TRAIN_NUMBER
+                                     ? AUTO_ROUTE_START_STATION_NUMBER
+                                     : STATION_COUNT;
+    for (uint8_t stationIndex = firstStationIndex;
+         stationIndex < stationLimit;
+         ++stationIndex) {
       for (uint16_t arrivalIndex = 0;
            arrivalIndex < cache.arrivalCount[stationIndex];
            ++arrivalIndex) {
+        const uint16_t candidateTrainNumber =
+            cache.trainNumbers[stationIndex][arrivalIndex];
+        if (requiredTrainNumber != INVALID_TRAIN_NUMBER
+            && candidateTrainNumber != requiredTrainNumber) {
+          continue;
+        }
         const uint32_t difference = circularTimeDifference(
             cache.arrivalSeconds[stationIndex][arrivalIndex], nowSeconds);
         if (difference < bestDifference) {
           bestDifference = difference;
           bestStation = stationIdFromNumber(static_cast<uint8_t>(stationIndex + 1));
+          bestTrainNumber = candidateTrainNumber;
         }
       }
     }
   }
   xSemaphoreGive(cacheMutex);
 
-  return bestDifference <= static_cast<uint32_t>(STATION_WINDOW)
-             ? bestStation
-             : StationId::INVALID;
+  if (bestDifference > static_cast<uint32_t>(STATION_WINDOW)) {
+    return {StationId::INVALID, INVALID_TRAIN_NUMBER};
+  }
+  return {bestStation, bestTrainNumber};
+}
+
+void resetRouteTracking() {
+  detectedStation = StationId::INVALID;
+  trackedTrainNumber = INVALID_TRAIN_NUMBER;
+  nextStationIndex = AUTO_ROUTE_START_STATION_NUMBER - 1;
+  routeComplete = false;
 }
 
 }  // namespace
@@ -358,16 +419,45 @@ void apiUpdate() {
     return;
   }
 
-  const StationId station = findCurrentStation(static_cast<uint32_t>(secondsOfDay));
-  detectedStation = station;
-  if (station == lastEvaluatedStation) {
+  if (routeComplete) {
+    detectedStation = StationId::INVALID;
     return;
   }
 
-  lastEvaluatedStation = station;
-  if (station != StationId::INVALID) {
-    // The worker only publishes cache data. Hardware fan-out remains in loop().
-    notifyStation(station);
+  const TimetableMatch match = findClosestTimetableMatch(
+      static_cast<uint32_t>(secondsOfDay), trackedTrainNumber);
+  detectedStation = match.station;
+  if (match.station == StationId::INVALID) {
+    return;
+  }
+
+  if (trackedTrainNumber == INVALID_TRAIN_NUMBER) {
+    trackedTrainNumber = match.trainNumber;
+#if DEBUG_API
+    Serial.printf("[API] Train %u locked at route start\n", trackedTrainNumber);
+#endif
+  }
+
+  const StationId expectedStation = stationIdFromNumber(nextStationIndex + 1);
+  if (match.station != expectedStation) {
+    return;
+  }
+
+#if DEBUG_API
+  Serial.printf("[API] Train %u station %u/%u\n",
+                trackedTrainNumber,
+                static_cast<unsigned>(nextStationIndex + 1),
+                static_cast<unsigned>(STATION_COUNT));
+#endif
+  // The worker only publishes cache data. Hardware fan-out remains in loop().
+  notifyStation(match.station);
+
+  ++nextStationIndex;
+  if (nextStationIndex >= STATION_COUNT) {
+    routeComplete = true;
+#if DEBUG_API
+    Serial.printf("[API] Train %u route complete\n", trackedTrainNumber);
+#endif
   }
 }
 
@@ -376,8 +466,7 @@ void apiSetAutoMode(bool enabled) {
     return;
   }
   autoMode = enabled;
-  detectedStation = StationId::INVALID;
-  lastEvaluatedStation = StationId::INVALID;
+  resetRouteTracking();
   lastStationCheckAt = 0;
 
 #if DEBUG_API
@@ -417,4 +506,18 @@ bool apiIsTimetableReady() {
 
 StationId apiDetectedStation() {
   return detectedStation;
+}
+
+uint16_t apiTrackedTrainNumber() {
+  return trackedTrainNumber;
+}
+
+uint8_t apiNextStationNumber() {
+  return nextStationIndex < STATION_COUNT
+             ? static_cast<uint8_t>(nextStationIndex + 1)
+             : 0;
+}
+
+bool apiIsRouteComplete() {
+  return routeComplete;
 }

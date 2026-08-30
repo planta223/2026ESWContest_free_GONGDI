@@ -42,6 +42,8 @@ constexpr char SUBWAY_API_BASE_URL[] = "http://openapi.seoul.go.kr:8088/";
 constexpr char SUBWAY_API_KEY[] = "67726f57766461683530747742654f";
 constexpr char SUBWAY_API_SERVICE[] = "SearchSTNTimeTableByFRCodeService";
 constexpr uint8_t TRAIN_DIRECTION = 1;  // 1=up/inner, 2=down/outer
+// AUTO waits at this station, then follows only the first detected TRAIN_NO.
+constexpr uint8_t AUTO_ROUTE_START_STATION_NUMBER = 1;  // 1=205, Dongdaemun History & Culture Park
 constexpr int32_t STATION_WINDOW = 90;  // seconds before/after arrival
 constexpr uint16_t MAX_TIMES = 320;
 
