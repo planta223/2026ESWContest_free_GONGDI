@@ -145,19 +145,19 @@ DFPlayer가 인식할 카드(FAT32 권장)에 다음 경로와 이름으로 복�
 
 ## 역 데이터와 모터 위치
 
-| Serial | 역 | Track | 진동 | 논리 위치 | 4096 step 기준 |
+| Serial | 역 | Track | 진동 | 이전 역에서의 간격 | 누적 목표 step |
 |---:|---|---:|:---:|---:|---:|
-| 1 | 동대문역사공원 | 1 | ON | 0° | 0 |
-| 2 | 신당 | 2 | ON | 72° | 819 |
-| 3 | 상왕십리 | 3 | ON | 144° | 1638 |
-| 4 | 왕십리 | 4 | **OFF** | 216° | 2458 |
-| 5 | 한양대 | 5 | ON | 288° | 3277 |
+| 1 | 동대문역사공원 | 1 | ON | - | 0 |
+| 2 | 신당 | 2 | ON | 819 | 819 |
+| 3 | 상왕십리 | 3 | ON | 819 | 1638 |
+| 4 | 왕십리 | 4 | **OFF** | 820 | 2458 |
+| 5 | 한양대 | 5 | ON | 819 | 3277 |
 
-위 step은 `MOTOR_STEPS_PER_REV`와 위치 인덱스에서 계산되므로 역 데이터에 magic number로 반복되지 않습니다.
+동대문역사공원은 항상 `0 step`입니다. 나머지 네 역의 목표는 `config.h`의 `MOTOR_INTERVAL_TO_*_STEPS` 4개를 앞에서부터 누적해 계산합니다. 기본값은 기존 등간격 목표와 같지만, 각 구간을 독립적으로 보정할 수 있습니다.
 
 Home sensor가 없으므로 부팅할 때 모터의 물리 위치를 반드시 동대문역사공원 위치(0°)에 맞춰 두어야 합니다. 펌웨어는 부팅 위치를 `0 step`이라고 가정할 뿐 절대 위치를 측정하지 못합니다. 기구가 slip하거나 전원이 차단된 상태에서 움직이면 위치 기준이 어긋납니다.
 
-28BYJ-48의 실제 1회전 step은 제품과 감속기 편차가 있습니다. 한 바퀴가 맞지 않으면 `config.h`의 `MOTOR_STEPS_PER_REV`를 보정합니다. 모터가 회전하지 않고 떨기만 하면 `motor.cpp`의 HALF4WIRE 핀 순서(IN1, IN3, IN2, IN4)를 실제 ULN2003 보드에 맞게 조정합니다.
+28BYJ-48의 실제 이동 step은 제품과 감속기 편차가 있습니다. 각 역 위치가 맞지 않으면 `config.h`의 해당 `MOTOR_INTERVAL_TO_*_STEPS`를 보정합니다. 모터가 회전하지 않고 떨기만 하면 `motor.cpp`의 HALF4WIRE 핀 순서(IN1, IN3, IN2, IN4)를 실제 ULN2003 보드에 맞게 조정합니다.
 
 ## 한글 매트릭스 표시
 
@@ -166,7 +166,8 @@ Home sensor가 없으므로 부팅할 때 모터의 물리 위치를 반드시 �
 - 계산된 전체 폭이 32 pixel 이하인 역명: 정적 중앙 정렬
 - 계산된 전체 폭이 32 pixel을 초과하는 역명: 32-column 창을 1 pixel씩 이동
 - 각 8×8 한글 글리프는 기본적으로 반시계 방향 90° 회전
-- 정적 표시 시간, scroll 간격, 반복 횟수는 모두 `config.h`에서 조정
+- 정적 역명은 다음 역 전환까지 계속 표시, 긴 역명은 지속적으로 반복 scroll
+- scroll 간격과 밝기는 `config.h`에서 조정
 
 `MATRIX_GLYPH_SPACING_CELLS`는 인접 글자 사이에만 `n`개의 빈 pixel column을 삽입합니다. 즉 높이 8 pixel인 간격 영역의 크기는 `8×n`이고 전체 폭은 `8*G + n*(G-1)`입니다. 값 0은 기존의 간격 없는 출력과 같습니다. scroll content는 RAM buffer로 펼치지 않고 필요한 column을 즉시 계산합니다.
 
@@ -220,7 +221,7 @@ status            현재 역과 모든 모듈 상태
 4. **Audio:** `audio 1`~`audio 5`로 파일 번호와 볼륨을 확인합니다.
 5. **Matrix:** `matrix 2`로 방향을 확인한 뒤 `matrix 1`로 pixel scroll을 확인합니다.
 6. **Button:** 아직 역을 고르지 않고 누르면 LED만 1초 켜지고 `[BUTTON] No current station`이 출력되어야 합니다.
-7. **통합:** `1`~`5` 각각에서 네 출력이 함께 시작되는지 확인합니다. `4`에는 진동이 없어야 합니다.
+7. **통합:** 기본 설정에서 `1`~`5`를 입력하면 matrix와 stepper만 즉시 시작하고 audio/vibration은 시작하지 않아야 합니다.
 8. **재안내:** `3` 입력 후 버튼을 눌러 matrix/audio/vibration은 재시작하고 stepper target은 변하지 않는지 `status`로 확인합니다. `4`에서도 재안내 진동은 없어야 합니다.
 
 DFPlayer 초기화가 실패해도 오류만 기록하고 matrix, motor, vibration, button은 계속 동작합니다.
@@ -229,19 +230,25 @@ DFPlayer 초기화가 실패해도 오류만 기록하고 matrix, motor, vibrati
 
 `config.h`에서 주로 조정할 값:
 
+`AUDIO_BUTTON_ONLY_MODE`와 `VIBRATION_BUTTON_ONLY_MODE`를 `true`로 두면 역 전환 때는 해당 모듈을 시작하지 않고, 물리 버튼을 누를 때만 현재 역 안내를 실행합니다. 각 값을 `false`로 바꾸면 기존처럼 역 전환 시점에도 자동 실행됩니다.
+
 ```cpp
 BUTTON_DEBOUNCE_MS
 BUTTON_LED_ON_MS
 VIBRATION_DURATION_MS
+VIBRATION_BUTTON_ONLY_MODE
 MATRIX_SCROLL_INTERVAL_MS
-MATRIX_STATIC_DISPLAY_MS
-MATRIX_SCROLL_REPEAT
 MATRIX_INTENSITY
 MATRIX_GLYPH_SPACING_CELLS
 DFPLAYER_VOLUME
+AUDIO_BUTTON_ONLY_MODE
 MOTOR_STEPS_PER_REV
 MOTOR_MAX_SPEED
 MOTOR_ACCELERATION
+MOTOR_INTERVAL_TO_SINDANG_STEPS
+MOTOR_INTERVAL_TO_SANGWANGSIMNI_STEPS
+MOTOR_INTERVAL_TO_WANGSIMNI_STEPS
+MOTOR_INTERVAL_TO_HANYANG_UNIV_STEPS
 WIFI_SSID / WIFI_PASS
 WIFI_RECONNECT_INTERVAL_MS
 NTP_SERVER_1 / NTP_SERVER_2

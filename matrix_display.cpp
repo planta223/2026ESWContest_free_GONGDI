@@ -81,9 +81,7 @@ DisplayMode mode = DisplayMode::IDLE;
 const StationInfo* scrollingStation = nullptr;
 size_t contentWidth = 0;
 int32_t scrollOffset = 0;
-uint8_t scrollCompleted = 0;
 uint32_t lastFrameAt = 0;
-uint32_t staticStartedAt = 0;
 
 uint8_t glyphColumn(GlyphId glyph, uint8_t x) {
   const uint8_t glyphIndex = static_cast<uint8_t>(glyph);
@@ -211,13 +209,11 @@ void matrixShowStation(StationId station) {
   Serial.printf("[MATRIX] Display: %s (%s)\n", info->name, info->debugName);
 #endif
 
-  const uint32_t now = millis();
   const size_t width = textWidth(*info);
   if (width <= MATRIX_WIDTH) {
     scrollingStation = nullptr;
     contentWidth = width;
     renderStatic(*info, width);
-    staticStartedAt = now;
     mode = DisplayMode::STATIC;
     return;
   }
@@ -227,8 +223,7 @@ void matrixShowStation(StationId station) {
   scrollingStation = info;
   contentWidth = width;
   scrollOffset = -static_cast<int32_t>(MATRIX_WIDTH);
-  scrollCompleted = 0;
-  lastFrameAt = now;
+  lastFrameAt = millis();
   mode = DisplayMode::SCROLLING;
   renderScrollFrame();
 }
@@ -237,9 +232,7 @@ void matrixUpdate() {
   const uint32_t now = millis();
 
   if (mode == DisplayMode::STATIC) {
-    if (static_cast<uint32_t>(now - staticStartedAt) >= MATRIX_STATIC_DISPLAY_MS) {
-      matrixClear();
-    }
+    // Keep the current station visible until another station replaces it.
     return;
   }
 
@@ -254,16 +247,11 @@ void matrixUpdate() {
 
   // source offset == contentWidth is the first completely blank exit frame.
   if (scrollOffset >= static_cast<int32_t>(contentWidth)) {
-    ++scrollCompleted;
-    const uint8_t repeatTarget = MATRIX_SCROLL_REPEAT == 0 ? 1 : MATRIX_SCROLL_REPEAT;
-    if (scrollCompleted >= repeatTarget) {
-      matrixClear();
+    // Long station names repeat forever so the matrix never becomes idle.
+    scrollOffset = -static_cast<int32_t>(MATRIX_WIDTH);
 #if DEBUG_MATRIX
-      Serial.println(F("[MATRIX] Scroll complete"));
+    Serial.println(F("[MATRIX] Scroll repeat"));
 #endif
-    } else {
-      scrollOffset = -static_cast<int32_t>(MATRIX_WIDTH);
-    }
   }
 }
 

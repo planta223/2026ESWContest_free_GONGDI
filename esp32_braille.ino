@@ -43,11 +43,25 @@ void runStationNotification(StationId station) {
   Serial.printf("[SYSTEM] Station event: %s (%s)\n", info->name, info->debugName);
 #endif
 
-  // Each call starts a separate non-blocking module. Their update functions
-  // continue independently in loop() while the stepper is moving.
+  // Matrix and stepper always react immediately to a station change. Audio
+  // and vibration can be restricted to physical-button guidance in config.h.
   matrixShowStation(station);
-  audioPlayStation(station);
-  if (info->vibrationEnabled) {
+  motorMoveToStation(station);
+
+  if (!AUDIO_BUTTON_ONLY_MODE) {
+    audioPlayStation(station);
+  } else {
+#if DEBUG_AUDIO
+    Serial.println(F("[AUDIO] Automatic station playback disabled (button only)"));
+#endif
+  }
+
+  if (VIBRATION_BUTTON_ONLY_MODE) {
+    vibrationStop();
+#if DEBUG_VIBRATION
+    Serial.println(F("[VIB] Automatic station start disabled (button only)"));
+#endif
+  } else if (info->vibrationEnabled) {
     vibrationStart();
   } else {
     vibrationStop();
@@ -55,7 +69,6 @@ void runStationNotification(StationId station) {
     Serial.println(F("[VIB] Disabled for this station"));
 #endif
   }
-  motorMoveToStation(station);
 }
 
 void replayCurrentStation() {

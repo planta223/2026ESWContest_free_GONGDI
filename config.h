@@ -95,6 +95,10 @@ constexpr uint32_t BUTTON_LED_ON_MS = 1000;
 constexpr uint32_t VIBRATION_DURATION_MS = 1000;
 constexpr uint8_t VIBRATION_ACTIVE_LEVEL = HIGH;
 
+// true: station changes do not start vibration; the physical button does.
+// false: preserve the original automatic station-change behavior.
+constexpr bool VIBRATION_BUTTON_ONLY_MODE = true;
+
 // =============================================================
 // MAX7219 8x32 matrix
 // MATRIX_HARDWARE_TYPE is consumed after MD_MAX72XX.h is included.
@@ -106,8 +110,6 @@ constexpr uint8_t MATRIX_WIDTH = MATRIX_DEVICE_COUNT * 8;
 constexpr uint8_t MATRIX_HEIGHT = 8;
 constexpr uint8_t MATRIX_INTENSITY = 2;  // 0..15
 constexpr uint32_t MATRIX_SCROLL_INTERVAL_MS = 60;
-constexpr uint32_t MATRIX_STATIC_DISPLAY_MS = 5000;
-constexpr uint8_t MATRIX_SCROLL_REPEAT = 2;
 
 // Number of blank pixel columns inserted only between adjacent 8x8 glyphs.
 // Despite the legacy CELLS name, 1 means one column, 2 means two columns, etc.
@@ -130,11 +132,21 @@ constexpr bool MATRIX_ROTATE_GLYPHS_CCW = false;
 constexpr uint32_t DFPLAYER_BAUD_RATE = 9600;
 constexpr uint8_t DFPLAYER_VOLUME = 24;  // 0..30
 
+// true: station changes do not play audio; the physical button does.
+// false: preserve the original automatic station-change behavior.
+constexpr bool AUDIO_BUTTON_ONLY_MODE = true;
+
 // =============================================================
 // 28BYJ-48 + ULN2003
-// MOTOR_STEPS_PER_REV is deliberately configurable because geared motors vary.
+// The first station is always zero. Each following value is the step distance
+// from the previous station, not an absolute target. The default values retain
+// the former 0, 819, 1638, 2458 and 3277 step targets.
 // =============================================================
 constexpr int32_t MOTOR_STEPS_PER_REV = 4096;
 constexpr float MOTOR_MAX_SPEED = 700.0F;
 constexpr float MOTOR_ACCELERATION = 350.0F;
-constexpr uint8_t STATION_POSITION_COUNT = 5;
+
+constexpr int32_t MOTOR_INTERVAL_TO_SINDANG_STEPS = 15000;
+constexpr int32_t MOTOR_INTERVAL_TO_SANGWANGSIMNI_STEPS = 16000;
+constexpr int32_t MOTOR_INTERVAL_TO_WANGSIMNI_STEPS = 14000;
+constexpr int32_t MOTOR_INTERVAL_TO_HANYANG_UNIV_STEPS = 16000;

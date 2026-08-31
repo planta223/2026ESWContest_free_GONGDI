@@ -22,6 +22,7 @@ bool wasMoving = false;
 void motorBegin() {
   stepper.setMaxSpeed(MOTOR_MAX_SPEED);
   stepper.setAcceleration(MOTOR_ACCELERATION);
+  stepper.enableOutputs();
 
   // There is no home sensor in the prototype. The physical boot position is
   // treated as the zero-step (Dongdaemun History & Culture Park) position.
@@ -43,11 +44,19 @@ void motorMoveToStation(StationId station) {
     return;
   }
 
+  // Keep motor output independent from button/audio/vibration settings.
+  // Explicitly enabling the outputs also recovers if a future code path calls
+  // disableOutputs() to reduce idle current.
+  stepper.enableOutputs();
+  const int32_t currentStep = stepper.currentPosition();
   stepper.moveTo(info->motorTargetStep);
   wasMoving = stepper.distanceToGo() != 0;
 
 #if DEBUG_MOTOR
-  Serial.printf("[MOTOR] Move target: %ld\n", static_cast<long>(info->motorTargetStep));
+  Serial.printf("[MOTOR] Move: %ld -> %ld (distance: %ld)\n",
+                static_cast<long>(currentStep),
+                static_cast<long>(info->motorTargetStep),
+                static_cast<long>(stepper.distanceToGo()));
 #endif
 }
 
@@ -76,4 +85,3 @@ int32_t motorCurrentPosition() {
 int32_t motorTargetPosition() {
   return stepper.targetPosition();
 }
-
