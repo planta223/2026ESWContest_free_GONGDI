@@ -23,7 +23,6 @@ constexpr size_t API_FILTER_JSON_CAPACITY = 384;
 constexpr size_t REALTIME_FILTER_JSON_CAPACITY = 512;
 constexpr uint16_t INVALID_TRAIN_NUMBER = 0;
 constexpr uint8_t REALTIME_STATUS_DEPARTED = 2;
-constexpr uint8_t REALTIME_STATUS_PREVIOUS_STATION_DEPARTED = 3;
 constexpr size_t DEPARTURE_UPDATE_DELAY_COUNT =
     sizeof(DEPARTURE_UPDATE_DELAY_SEC) / sizeof(DEPARTURE_UPDATE_DELAY_SEC[0]);
 
@@ -37,6 +36,8 @@ static_assert(TRAIN_DIRECTION == 1 || TRAIN_DIRECTION == 2,
               "Train direction must be 1 or 2");
 static_assert(REALTIME_API_POLL_INTERVAL_MS > 0,
               "Realtime polling interval must be positive");
+static_assert(REALTIME_NEXT_STATION_UPDATE_DELAY_SEC <= UINT32_MAX / 1000UL,
+              "Realtime next-station delay is too large");
 static_assert(REALTIME_API_DAILY_LIMIT > 0,
               "Realtime daily limit must be positive");
 
@@ -105,6 +106,9 @@ uint32_t lastRealtimePollAt = 0;
 bool realtimeCooldownActive = false;
 uint32_t realtimeCooldownStartedAt = 0;
 bool realtimeFallbackActive = false;
+bool realtimeNextStationTransitionPending = false;
+uint32_t realtimeNextStationObservedAt = 0;
+uint8_t realtimePendingDepartureNumber = 0;
 volatile uint32_t latestRealtimeUsageCount = 0;
 
 bool timeIsReady() {
@@ -469,12 +473,16 @@ RealtimePollResult fetchRealtimePosition(uint16_t requiredTrainNumber,
       continue;
     }
 
-    if (stationNumber(station) != AUTO_ROUTE_START_STATION_NUMBER) {
+    const uint8_t observedStationNumber = stationNumber(station);
+    if (observedStationNumber != AUTO_ROUTE_START_STATION_NUMBER
+        && observedStationNumber != AUTO_ROUTE_START_STATION_NUMBER + 1) {
       continue;
     }
-    const uint8_t priority = trainStatus == REALTIME_STATUS_DEPARTED
-                                 ? 0
-                                 : trainStatus == 1 ? 1 : trainStatus == 0 ? 2 : 3;
+    const uint8_t priority = observedStationNumber == AUTO_ROUTE_START_STATION_NUMBER
+                                 ? trainStatus == REALTIME_STATUS_DEPARTED
+                                       ? 0
+                                       : trainStatus == 1 ? 1 : trainStatus == 0 ? 2 : 3
+                                 : 4;
     if (priority < bestInitialPriority) {
       bestInitialPriority = priority;
       result.observation = {station, trainNumber, trainStatus};
@@ -699,6 +707,30 @@ bool realtimeCooldownIsActive(uint32_t now) {
   return false;
 }
 
+bool advanceAfterDeparture(StationId departureStation, uint32_t now);
+
+bool updateDelayedRealtimeTransition(uint32_t now) {
+  if (!realtimeNextStationTransitionPending) {
+    return false;
+  }
+
+  const uint8_t expectedDepartureNumber = nextStationIndex + 1;
+  if (routeComplete
+      || realtimePendingDepartureNumber != expectedDepartureNumber) {
+    realtimeNextStationTransitionPending = false;
+    return false;
+  }
+
+  const uint32_t delayMs = REALTIME_NEXT_STATION_UPDATE_DELAY_SEC * 1000UL;
+  if (static_cast<uint32_t>(now - realtimeNextStationObservedAt) < delayMs) {
+    return false;
+  }
+
+  realtimeNextStationTransitionPending = false;
+  return advanceAfterDeparture(
+      stationIdFromNumber(expectedDepartureNumber), now);
+}
+
 bool advanceAfterDeparture(StationId departureStation, uint32_t now) {
   const StationId expectedDepartureStation = stationIdFromNumber(nextStationIndex + 1);
   if (departureStation != expectedDepartureStation) {
@@ -776,7 +808,9 @@ void updateFromRealtime(const RealtimePollResult& result, uint32_t now) {
   }
 
   if (trackedTrainNumber == INVALID_TRAIN_NUMBER) {
-    if (stationNumber(observation.station) != AUTO_ROUTE_START_STATION_NUMBER) {
+    const uint8_t observedStationNumber = stationNumber(observation.station);
+    if (observedStationNumber != AUTO_ROUTE_START_STATION_NUMBER
+        && observedStationNumber != AUTO_ROUTE_START_STATION_NUMBER + 1) {
       return;
     }
     trackedTrainNumber = observation.trainNumber;
@@ -790,15 +824,27 @@ void updateFromRealtime(const RealtimePollResult& result, uint32_t now) {
 
   const uint8_t expectedDepartureNumber = nextStationIndex + 1;
   const uint8_t observedStationNumber = stationNumber(observation.station);
-  const bool departureConfirmed =
-      (observedStationNumber == expectedDepartureNumber
-       && observation.trainStatus == REALTIME_STATUS_DEPARTED)
-      || (observedStationNumber == expectedDepartureNumber + 1
-          && observation.trainStatus
-                 == REALTIME_STATUS_PREVIOUS_STATION_DEPARTED);
-  if (departureConfirmed) {
+  if (observedStationNumber == expectedDepartureNumber
+      && observation.trainStatus == REALTIME_STATUS_DEPARTED) {
+    realtimeNextStationTransitionPending = false;
     advanceAfterDeparture(
         stationIdFromNumber(expectedDepartureNumber), now);
+  } else if (observedStationNumber == expectedDepartureNumber + 1) {
+    if (REALTIME_NEXT_STATION_UPDATE_DELAY_SEC == 0) {
+      advanceAfterDeparture(
+          stationIdFromNumber(expectedDepartureNumber), now);
+    } else if (!realtimeNextStationTransitionPending
+               || realtimePendingDepartureNumber != expectedDepartureNumber) {
+      realtimeNextStationTransitionPending = true;
+      realtimeNextStationObservedAt = now;
+      realtimePendingDepartureNumber = expectedDepartureNumber;
+#if DEBUG_API
+      Serial.printf("[API] Train %u observed at station %u; update in %u sec\n",
+                    trackedTrainNumber,
+                    static_cast<unsigned>(observedStationNumber),
+                    static_cast<unsigned>(REALTIME_NEXT_STATION_UPDATE_DELAY_SEC));
+#endif
+    }
   }
 }
 
@@ -811,6 +857,7 @@ void resetRouteTracking() {
   realtimePollStarted = false;
   realtimeCooldownActive = false;
   realtimeFallbackActive = false;
+  realtimeNextStationTransitionPending = false;
 
   portENTER_CRITICAL(&requestMux);
   realtimePollRequested = false;
@@ -910,6 +957,9 @@ void apiUpdate() {
     }
   }
 
+  const bool delayedTransitionAdvanced =
+      updateDelayedRealtimeTransition(now);
+
   if (routeComplete) {
     return;
   }
@@ -924,7 +974,9 @@ void apiUpdate() {
     realtimePollStarted = true;
   }
 
-  if (realtimeFallbackActive && REALTIME_API_FALLBACK_TO_TIMETABLE) {
+  if (!delayedTransitionAdvanced
+      && realtimeFallbackActive
+      && REALTIME_API_FALLBACK_TO_TIMETABLE) {
     updateFromTimetable(static_cast<uint32_t>(secondsOfDay), now);
   }
 }

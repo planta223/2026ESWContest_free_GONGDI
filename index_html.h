@@ -268,17 +268,20 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
       return;
     }
 
+    // Keep the train parked before the initial departure and at the terminal.
+    // Intermediate stations retain the original repeating travel animation.
+    const moving=current>0 && next>=0;
     const from=10+current*20;
-    const to=next>=0 ? 10+next*20 : from;
+    const to=moving ? 10+next*20 : from;
     train.style.setProperty('--route-from',from+'%');
     train.style.setProperty('--route-to',to+'%');
-    train.setAttribute('aria-label',next>=0
+    train.setAttribute('aria-label',moving
       ? `${STATIONS[current]}에서 ${STATIONS[next]} 방향으로 이동하는 지하철`
-      : `${STATIONS[current]} 종착역에 정차한 지하철`);
+      : `${STATIONS[current]}에 정차한 지하철`);
 
     train.className='route-train';
     void train.offsetWidth;
-    train.classList.add(next>=0 ? 'moving' : 'parked');
+    train.classList.add(moving ? 'moving' : 'parked');
     lastRouteIndex=current;
   }
 
