@@ -1,6 +1,6 @@
 # DotJabi — ESP32 지하철 점자·음성·진동 안내 프로토타입
 
-ESP32 기반 지하철 손잡이 부착형 안내 모듈입니다. Serial Monitor, 웹 원격 선택, 서울교통공사 시간표 API 자동 판정이 모두 `notifyStation(StationId)` 경계로 합쳐집니다.
+ESP32 기반 지하철 손잡이 부착형 안내 모듈입니다. Serial Monitor, 웹 원격 선택, 서울 지하철 시간표/실시간 위치 API 자동 판정이 모두 `notifyStation(StationId)` 경계로 합쳐집니다.
 
 하나의 역 이벤트가 다음 출력을 각각 시작합니다.
 
@@ -24,7 +24,8 @@ esp32_braille/
 ├── audio.h/.cpp            # UART2 DFPlayer 제어
 ├── matrix_display.h/.cpp   # 전용 한글 glyph와 pixel scroll
 ├── button.h/.cpp           # polling debounce와 LED 타이머
-├── api.h/.cpp              # background HTTP, 시간표 cache, AUTO 역 판정
+├── api.h/.cpp              # background HTTP, 시간표/실시간 AUTO 역 판정
+├── api_usage.h/.cpp        # realtime 일일 호출 횟수 NVS 관리
 ├── wifi_manager.h/.cpp     # Wi-Fi/NTP/HTTP/WebSocket와 command queue
 ├── index_html.h            # PROGMEM 웹 디버깅 UI
 ├── legacy/esp32_main.ino   # 이식 전 reference; sketch compile 대상에서 제외
@@ -110,7 +111,7 @@ Arduino Library Manager에서 다음 정확한 이름으로 설치합니다.
 - `ESP Async WebServer` by ESP32Async
 - `Async TCP` by ESP32Async
 
-`WiFi`, `HTTPClient`, `Network`, FreeRTOS와 SNTP/time API는 ESP32 board package에서 제공됩니다.
+`WiFi`, `HTTPClient`, `Network`, `Preferences`(NVS), FreeRTOS와 SNTP/time API는 ESP32 board package에서 제공됩니다.
 
 권장 Arduino IDE 설정:
 
@@ -252,7 +253,13 @@ MOTOR_INTERVAL_TO_HANYANG_UNIV_STEPS
 WIFI_SSID / WIFI_PASS
 WIFI_RECONNECT_INTERVAL_MS
 NTP_SERVER_1 / NTP_SERVER_2
+AUTO_API_SOURCE
 SUBWAY_API_BASE_URL / SUBWAY_API_KEY
+REALTIME_API_BASE_URL / REALTIME_API_KEY
+REALTIME_API_POLL_INTERVAL_MS
+REALTIME_API_TRANSITION_COOLDOWN_MS
+REALTIME_API_DAILY_LIMIT
+REALTIME_API_FALLBACK_TO_TIMETABLE
 TRAIN_DIRECTION / DEPARTURE_UPDATE_DELAY_SEC[0..3] / STATION_WINDOW
 API_REFRESH_INTERVAL_MS
 STATUS_PUSH_INTERVAL
@@ -262,7 +269,11 @@ STATUS_PUSH_INTERVAL
 
 ## Wi-Fi, API와 웹 UI
 
-Wi-Fi 연결과 NTP는 setup에서 기다리지 않고 비동기로 진행됩니다. `api.cpp`의 FreeRTOS worker만 5개 역의 HTTP 요청과 JSON 파싱을 수행하고, 성공한 전체 cache를 이중 버퍼로 한 번에 공개합니다. worker는 `notifyStation()`이나 HW 모듈을 호출하지 않습니다. 메인 `apiUpdate()`가 매초 `LEFTTIME + DEPARTURE_UPDATE_DELAY_SEC[출발역]`과 현재 시각을 비교하고, 추적 중인 열차가 현재 역을 출발하면 다음 역으로 `notifyStation()`을 호출합니다.
+Wi-Fi 연결과 NTP는 setup에서 기다리지 않고 비동기로 진행됩니다. `AUTO_API_SOURCE`의 기본값은 기존 동작을 유지하는 `AutoApiSource::TIMETABLE`이며, `AutoApiSource::REALTIME`로 바꾸면 서울시 `realtimePosition`을 사용합니다. 두 모드 모두 HTTP 요청과 JSON 파싱은 `api.cpp`의 FreeRTOS worker가 수행하고, worker는 `notifyStation()`이나 HW 모듈을 호출하지 않습니다.
+
+TIMETABLE 모드는 메인 `apiUpdate()`가 매초 `LEFTTIME + DEPARTURE_UPDATE_DELAY_SEC[출발역]`과 현재 시각을 비교합니다. REALTIME 모드는 기본 15초마다 추적 중인 `TRAIN_NO`의 현재 역과 `trainSttus`를 확인하며, 출발 상태(`2`) 또는 다음 역으로 전진한 사실이 확인되면 다음 역을 안내합니다. 역 전환 직후에는 기본 45초 동안 realtime polling을 쉬며, 실패하거나 일일 한도에 도달하면 준비된 시간표 cache로 fallback합니다.
+
+`api_usage.cpp`는 realtime HTTP 요청을 실제로 시도하기 직전에 일일 사용량을 NVS에 기록합니다. 재부팅 후에도 횟수가 유지되고 로컬 날짜가 바뀌면 자동으로 0부터 다시 시작합니다. 시간표 API 요청은 별도 키와 fallback 경로이므로 realtime 일일 사용량에 포함하지 않습니다.
 
 웹 UI는 `http://<ESP32-IP>/`의 `INDEX_HTML`이며 WebSocket endpoint는 `/ws`입니다.
 

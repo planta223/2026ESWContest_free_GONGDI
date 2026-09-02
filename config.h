@@ -36,11 +36,32 @@ constexpr size_t WIFI_STATUS_JSON_BUFFER_SIZE = 512;
 constexpr size_t WIFI_ACK_JSON_BUFFER_SIZE = 128;
 
 // =============================================================
-// Seoul subway timetable API
+// Seoul subway AUTO APIs
 // =============================================================
+enum class AutoApiSource : uint8_t {
+  TIMETABLE,
+  REALTIME
+};
+
+// TIMETABLE preserves the existing schedule behavior. REALTIME uses
+// realtimePosition and falls back to the timetable when configured below.
+constexpr AutoApiSource AUTO_API_SOURCE = AutoApiSource::REALTIME;
+
 constexpr char SUBWAY_API_BASE_URL[] = "http://openapi.seoul.go.kr:8088/";
 constexpr char SUBWAY_API_KEY[] = "67726f57766461683530747742654f";
 constexpr char SUBWAY_API_SERVICE[] = "SearchSTNTimeTableByFRCodeService";
+constexpr char REALTIME_API_BASE_URL[] = "http://swopenAPI.seoul.go.kr/api/subway/";
+constexpr char REALTIME_API_KEY[] = "76626f6b4364616839396353457578";
+constexpr char REALTIME_API_SERVICE[] = "realtimePosition";
+constexpr char REALTIME_SUBWAY_NAME_ENCODED[] = "2%ED%98%B8%EC%84%A0";  // 2호선
+constexpr uint16_t REALTIME_API_START_INDEX = 0;
+constexpr uint16_t REALTIME_API_END_INDEX = 1000;
+constexpr uint32_t REALTIME_API_POLL_INTERVAL_MS = 15000;
+constexpr uint32_t REALTIME_API_TRANSITION_COOLDOWN_MS = 45000;
+constexpr uint32_t REALTIME_API_DAILY_LIMIT = 1000;
+constexpr bool REALTIME_API_FALLBACK_TO_TIMETABLE = true;
+constexpr size_t REALTIME_API_JSON_DOCUMENT_CAPACITY = 24576;
+
 constexpr uint8_t TRAIN_DIRECTION = 1;  // 1=up/inner, 2=down/outer
 // AUTO waits at this station, then follows only the first detected TRAIN_NO.
 constexpr uint8_t AUTO_ROUTE_START_STATION_NUMBER = 1;  // 1=205, Dongdaemun History & Culture Park
