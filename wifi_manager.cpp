@@ -200,6 +200,17 @@ void broadcastStatus() {
   document["realtimePolling"] = apiIsRealtimePolling();
   document["realtimeNextSec"] = apiRealtimeSecondsUntilNextPoll();
   document["apiRemaining"] = apiRealtimeRemainingRequests();
+  document["diagnostics"] = REALTIME_DIAGNOSTICS_ENABLE;
+  if (REALTIME_DIAGNOSTICS_ENABLE) {
+    char localClock[9] = "--:--:--";
+    const time_t now = time(nullptr);
+    tm localTime = {};
+    if (now >= NTP_MIN_VALID_EPOCH
+        && localtime_r(&now, &localTime) != nullptr) {
+      strftime(localClock, sizeof(localClock), "%H:%M:%S", &localTime);
+    }
+    document["ntpTime"] = localClock;
+  }
 
   char output[WIFI_STATUS_JSON_BUFFER_SIZE] = {};
   serializeJson(document, output, sizeof(output));

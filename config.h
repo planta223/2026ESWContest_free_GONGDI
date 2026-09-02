@@ -58,8 +58,9 @@ constexpr char REALTIME_API_SERVICE[] = "realtimePosition";
 constexpr char REALTIME_SUBWAY_NAME_ENCODED[] = "2%ED%98%B8%EC%84%A0";  // 2호선
 constexpr uint16_t REALTIME_API_START_INDEX = 0;
 constexpr uint16_t REALTIME_API_END_INDEX = 1000;
-constexpr uint32_t REALTIME_API_POLL_INTERVAL_MS = 10000;
-constexpr uint32_t REALTIME_API_TRANSITION_COOLDOWN_MS = 30000;
+constexpr uint32_t REALTIME_API_POLL_INTERVAL_MS = 5000;
+constexpr bool REALTIME_DIAGNOSTICS_ENABLE = false;
+constexpr uint32_t REALTIME_API_TRANSITION_COOLDOWN_MS = 0;
 // Applied only when departure status=2 was missed and the tracked train is
 // first observed at the next station.
 constexpr uint32_t REALTIME_NEXT_STATION_UPDATE_DELAY_SEC = 0;
@@ -180,7 +181,7 @@ constexpr int32_t MOTOR_STEPS_PER_REV = 4096;
 constexpr float MOTOR_MAX_SPEED = 700.0F;
 constexpr float MOTOR_ACCELERATION = 350.0F;
 
-constexpr int32_t MOTOR_INTERVAL_TO_SINDANG_STEPS = 15000;
+constexpr int32_t MOTOR_INTERVAL_TO_SINDANG_STEPS = 16000;
 constexpr int32_t MOTOR_INTERVAL_TO_SANGWANGSIMNI_STEPS = 16000;
 constexpr int32_t MOTOR_INTERVAL_TO_WANGSIMNI_STEPS = 14000;
 constexpr int32_t MOTOR_INTERVAL_TO_HANYANG_UNIV_STEPS = 16000;

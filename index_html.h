@@ -203,6 +203,16 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
       <div class="status-row"><span>오늘 남은 API 횟수</span><span class="mon-val" id="s-api-remaining">-</span></div>
     </div>
 
+    <!-- REALTIME_DIAGNOSTICS_ENABLE일 때만 status 메시지로 표시 -->
+    <div class="card full" id="diagnosticsPanel" hidden>
+      <h2>실차 시간 계측</h2>
+      <div class="status-row"><span>ESP32 NTP 시각</span><span class="mon-val" id="diagnosticsClock">--:--:--</span></div>
+      <div class="row-btns">
+        <button class="ctrl auto" onclick="recordDiagnostic('실제 열차 출발')">실제 출발 기록</button>
+        <button class="ctrl refresh" onclick="recordDiagnostic('실제 안내방송 시작')">실제 안내방송 기록</button>
+      </div>
+    </div>
+
     <!-- 통신 로그 -->
     <div class="card full">
       <h2>ESP32 로그 / 통신 로그</h2>
@@ -219,10 +229,14 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
   const $  = id => document.getElementById(id);
   let lastRouteIndex = -2;
 
-  function log(msg){
+  function log(msg, timestamp){
     const d=document.createElement('div');
-    d.textContent=`[${new Date().toLocaleTimeString()}] ${msg}`;
+    d.textContent=`[${timestamp || new Date().toLocaleTimeString()}] ${msg}`;
     $('log').prepend(d);
+  }
+
+  function recordDiagnostic(eventName){
+    log(`★ ${eventName}`, $('diagnosticsClock').textContent);
   }
 
   // 역 버튼 동적 생성 (데이터 주도)
@@ -337,6 +351,10 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
       $('s-api-remaining').textContent = m.realtime
         ? `${m.apiRemaining}회`
         : '-';
+      $('diagnosticsPanel').hidden = !m.diagnostics;
+      if(m.diagnostics){
+        $('diagnosticsClock').textContent = m.ntpTime || '--:--:--';
+      }
     }
     else if(m.type==='log'){
       log(m.line || '');

@@ -412,6 +412,12 @@ RealtimePollResult fetchRealtimePosition(uint16_t requiredTrainNumber,
   filter["realtimePositionList"][0]["trainNo"] = true;
   filter["realtimePositionList"][0]["updnLine"] = true;
   filter["realtimePositionList"][0]["trainSttus"] = true;
+#if DEBUG_API
+  if (REALTIME_DIAGNOSTICS_ENABLE) {
+    filter["realtimePositionList"][0]["recptnDt"] = true;
+    filter["realtimePositionList"][0]["lastRecptnDt"] = true;
+  }
+#endif
 
   DynamicJsonDocument document(REALTIME_API_JSON_DOCUMENT_CAPACITY);
   const DeserializationError error = deserializeJson(
@@ -449,6 +455,16 @@ RealtimePollResult fetchRealtimePosition(uint16_t requiredTrainNumber,
   result.outcome = RealtimePollOutcome::SUCCESS;
   const uint8_t expectedDirection = static_cast<uint8_t>(TRAIN_DIRECTION - 1);
   uint8_t bestInitialPriority = UINT8_MAX;
+#if DEBUG_API
+  char receiveClock[9] = "--:--:--";
+  if (REALTIME_DIAGNOSTICS_ENABLE) {
+    const time_t receivedAt = time(nullptr);
+    tm receivedLocalTime = {};
+    if (localtime_r(&receivedAt, &receivedLocalTime) != nullptr) {
+      strftime(receiveClock, sizeof(receiveClock), "%H:%M:%S", &receivedLocalTime);
+    }
+  }
+#endif
   for (JsonObject row : rows) {
     uint8_t direction = 0;
     uint8_t trainStatus = 0;
@@ -465,6 +481,20 @@ RealtimePollResult fetchRealtimePosition(uint16_t requiredTrainNumber,
       continue;
     }
 
+#if DEBUG_API
+    if (REALTIME_DIAGNOSTICS_ENABLE) {
+      const StationInfo* stationInfo = getStationInfo(station);
+      Serial.printf(
+          "[API-DIAG] recv=%s train=%u station=%s status=%u recptnDt=%s lastRecptnDt=%s\n",
+          receiveClock,
+          static_cast<unsigned>(trainNumber),
+          stationInfo == nullptr ? "?" : stationInfo->name,
+          static_cast<unsigned>(trainStatus),
+          row["recptnDt"] | "",
+          row["lastRecptnDt"] | "");
+    }
+#endif
+
     if (requiredTrainNumber != INVALID_TRAIN_NUMBER) {
       if (trainNumber == requiredTrainNumber) {
         result.observation = {station, trainNumber, trainStatus};
@@ -474,8 +504,7 @@ RealtimePollResult fetchRealtimePosition(uint16_t requiredTrainNumber,
     }
 
     const uint8_t observedStationNumber = stationNumber(station);
-    if (observedStationNumber != AUTO_ROUTE_START_STATION_NUMBER
-        && observedStationNumber != AUTO_ROUTE_START_STATION_NUMBER + 1) {
+    if (observedStationNumber != AUTO_ROUTE_START_STATION_NUMBER) {
       continue;
     }
     const uint8_t priority = observedStationNumber == AUTO_ROUTE_START_STATION_NUMBER
@@ -809,10 +838,9 @@ void updateFromRealtime(const RealtimePollResult& result, uint32_t now) {
 
   if (trackedTrainNumber == INVALID_TRAIN_NUMBER) {
     const uint8_t observedStationNumber = stationNumber(observation.station);
-    if (observedStationNumber != AUTO_ROUTE_START_STATION_NUMBER
-        && observedStationNumber != AUTO_ROUTE_START_STATION_NUMBER + 1) {
-      return;
-    }
+  if (observedStationNumber != AUTO_ROUTE_START_STATION_NUMBER) {
+    return;
+  }
     trackedTrainNumber = observation.trainNumber;
 #if DEBUG_API
     Serial.printf("[API] Realtime train %u locked at route start\n",
