@@ -311,6 +311,7 @@ void setup() {
   buttonBegin();
   matrixBegin();
   audioBegin();
+  notifyStation(StationId::DONGDAEMUN_HISTORY_CULTURE_PARK);
   wifiBegin();
   apiBegin();
 

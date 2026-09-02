@@ -20,10 +20,14 @@ constexpr uint32_t SECONDS_PER_DAY = 24UL * 60UL * 60UL;
 constexpr size_t API_URL_RESERVE_SIZE = 192;
 constexpr size_t API_FILTER_JSON_CAPACITY = 384;
 constexpr uint16_t INVALID_TRAIN_NUMBER = 0;
+constexpr size_t DEPARTURE_UPDATE_DELAY_COUNT =
+    sizeof(DEPARTURE_UPDATE_DELAY_SEC) / sizeof(DEPARTURE_UPDATE_DELAY_SEC[0]);
 
 static_assert(AUTO_ROUTE_START_STATION_NUMBER >= 1
                   && AUTO_ROUTE_START_STATION_NUMBER <= STATION_COUNT,
               "AUTO route start station must be in the station table");
+static_assert(DEPARTURE_UPDATE_DELAY_COUNT == STATION_COUNT - 1,
+              "A departure update delay is required for each route segment");
 static_assert(STATION_WINDOW >= 0, "Station window must not be negative");
 
 struct TimetableCache {
@@ -97,9 +101,12 @@ bool parseDepartureTime(const char* value, uint32_t& seconds) {
   return true;
 }
 
-uint32_t departureUpdateTime(uint32_t departureSeconds) {
+uint32_t departureUpdateTime(uint32_t departureSeconds, uint8_t stationIndex) {
+  const int32_t delaySeconds = stationIndex < DEPARTURE_UPDATE_DELAY_COUNT
+                                   ? DEPARTURE_UPDATE_DELAY_SEC[stationIndex]
+                                   : 0;
   int64_t adjustedSeconds = static_cast<int64_t>(departureSeconds)
-                            + DEPARTURE_UPDATE_DELAY_SEC;
+                            + delaySeconds;
   adjustedSeconds %= static_cast<int64_t>(SECONDS_PER_DAY);
   if (adjustedSeconds < 0) {
     adjustedSeconds += SECONDS_PER_DAY;
@@ -208,7 +215,7 @@ bool fetchTimetable(uint8_t stationIndex,
         && parseTrainNumber(row["TRAIN_NO"] | "", trainNumber)) {
       const uint16_t departureIndex = destination.departureCount[stationIndex]++;
       destination.departureUpdateSeconds[stationIndex][departureIndex] =
-          departureUpdateTime(seconds);
+          departureUpdateTime(seconds, stationIndex);
       destination.trainNumbers[stationIndex][departureIndex] = trainNumber;
     }
   }

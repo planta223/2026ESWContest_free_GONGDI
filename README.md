@@ -253,7 +253,7 @@ WIFI_SSID / WIFI_PASS
 WIFI_RECONNECT_INTERVAL_MS
 NTP_SERVER_1 / NTP_SERVER_2
 SUBWAY_API_BASE_URL / SUBWAY_API_KEY
-TRAIN_DIRECTION / DEPARTURE_UPDATE_DELAY_SEC / STATION_WINDOW
+TRAIN_DIRECTION / DEPARTURE_UPDATE_DELAY_SEC[0..3] / STATION_WINDOW
 API_REFRESH_INTERVAL_MS
 STATUS_PUSH_INTERVAL
 ```
@@ -262,7 +262,7 @@ STATUS_PUSH_INTERVAL
 
 ## Wi-Fi, API와 웹 UI
 
-Wi-Fi 연결과 NTP는 setup에서 기다리지 않고 비동기로 진행됩니다. `api.cpp`의 FreeRTOS worker만 5개 역의 HTTP 요청과 JSON 파싱을 수행하고, 성공한 전체 cache를 이중 버퍼로 한 번에 공개합니다. worker는 `notifyStation()`이나 HW 모듈을 호출하지 않습니다. 메인 `apiUpdate()`가 매초 `LEFTTIME + DEPARTURE_UPDATE_DELAY_SEC`와 현재 시각을 비교하고, 추적 중인 열차가 현재 역을 출발하면 다음 역으로 `notifyStation()`을 호출합니다.
+Wi-Fi 연결과 NTP는 setup에서 기다리지 않고 비동기로 진행됩니다. `api.cpp`의 FreeRTOS worker만 5개 역의 HTTP 요청과 JSON 파싱을 수행하고, 성공한 전체 cache를 이중 버퍼로 한 번에 공개합니다. worker는 `notifyStation()`이나 HW 모듈을 호출하지 않습니다. 메인 `apiUpdate()`가 매초 `LEFTTIME + DEPARTURE_UPDATE_DELAY_SEC[출발역]`과 현재 시각을 비교하고, 추적 중인 열차가 현재 역을 출발하면 다음 역으로 `notifyStation()`을 호출합니다.
 
 웹 UI는 `http://<ESP32-IP>/`의 `INDEX_HTML`이며 WebSocket endpoint는 `/ws`입니다.
 
