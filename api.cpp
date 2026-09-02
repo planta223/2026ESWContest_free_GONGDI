@@ -68,6 +68,7 @@ struct RealtimePollResult {
   RealtimePollOutcome outcome;
   RealtimeObservation observation;
   uint32_t trackingGeneration;
+  uint32_t usageCount;
 };
 
 TimetableCache timetableCaches[2] = {};
@@ -88,6 +89,7 @@ volatile uint32_t realtimeRequestedGeneration = 0;
 RealtimePollResult realtimeResult = {
     RealtimePollOutcome::FAILED,
     {StationId::INVALID, INVALID_TRAIN_NUMBER, 0},
+    0,
     0};
 bool realtimeResultAvailable = false;
 
@@ -103,6 +105,7 @@ uint32_t lastRealtimePollAt = 0;
 bool realtimeCooldownActive = false;
 uint32_t realtimeCooldownStartedAt = 0;
 bool realtimeFallbackActive = false;
+volatile uint32_t latestRealtimeUsageCount = 0;
 
 bool timeIsReady() {
   return time(nullptr) >= NTP_MIN_VALID_EPOCH;
@@ -340,7 +343,8 @@ RealtimePollResult fetchRealtimePosition(uint16_t requiredTrainNumber,
   RealtimePollResult result = {
       RealtimePollOutcome::FAILED,
       {StationId::INVALID, INVALID_TRAIN_NUMBER, 0},
-      requestGeneration};
+      requestGeneration,
+      apiUsageCount()};
   if (WiFi.status() != WL_CONNECTED || !timeIsReady()) {
     return result;
   }
@@ -370,13 +374,15 @@ RealtimePollResult fetchRealtimePosition(uint16_t requiredTrainNumber,
 
   const ApiUsageRecordResult usageResult =
       apiUsageRecordRequest(REALTIME_API_DAILY_LIMIT);
+  result.usageCount = apiUsageCount();
+  latestRealtimeUsageCount = result.usageCount;
   if (usageResult != ApiUsageRecordResult::RECORDED) {
     result.outcome = usageResult == ApiUsageRecordResult::LIMIT_REACHED
                          ? RealtimePollOutcome::LIMIT_REACHED
                          : RealtimePollOutcome::FAILED;
 #if DEBUG_API
     Serial.printf("[API] Realtime request blocked (usage=%u, reason=%u)\n",
-                  static_cast<unsigned>(apiUsageCount()),
+                  static_cast<unsigned>(result.usageCount),
                   static_cast<unsigned>(usageResult));
 #endif
     http.end();
@@ -389,7 +395,7 @@ RealtimePollResult fetchRealtimePosition(uint16_t requiredTrainNumber,
 #if DEBUG_API
     Serial.printf("[API] Realtime HTTP %d (usage=%u)\n",
                   statusCode,
-                  static_cast<unsigned>(apiUsageCount()));
+                  static_cast<unsigned>(result.usageCount));
 #endif
     http.end();
     return result;
@@ -479,13 +485,13 @@ RealtimePollResult fetchRealtimePosition(uint16_t requiredTrainNumber,
   if (result.observation.trainNumber == INVALID_TRAIN_NUMBER) {
     Serial.printf("[API] Realtime train not found (tracked=%u, usage=%u)\n",
                   requiredTrainNumber,
-                  static_cast<unsigned>(apiUsageCount()));
+                  static_cast<unsigned>(result.usageCount));
   } else {
     Serial.printf("[API] Realtime train %u station=%u status=%u (usage=%u)\n",
                   result.observation.trainNumber,
                   stationNumber(result.observation.station),
                   result.observation.trainStatus,
-                  static_cast<unsigned>(apiUsageCount()));
+                  static_cast<unsigned>(result.usageCount));
   }
 #endif
   return result;
@@ -833,6 +839,9 @@ void apiBegin() {
     Serial.println(F("[API] Realtime usage NVS initialization failed"));
 #endif
   }
+  if (AUTO_API_SOURCE == AutoApiSource::REALTIME) {
+    latestRealtimeUsageCount = apiUsageCount();
+  }
 
   const BaseType_t created = xTaskCreate(
       apiWorkerTask,
@@ -892,10 +901,13 @@ void apiUpdate() {
   RealtimePollResult result = {
       RealtimePollOutcome::FAILED,
       {StationId::INVALID, INVALID_TRAIN_NUMBER, 0},
-      0};
-  if (consumeRealtimeResult(result)
-      && result.trackingGeneration == trackingGeneration) {
-    updateFromRealtime(result, now);
+      0,
+      latestRealtimeUsageCount};
+  if (consumeRealtimeResult(result)) {
+    latestRealtimeUsageCount = result.usageCount;
+    if (result.trackingGeneration == trackingGeneration) {
+      updateFromRealtime(result, now);
+    }
   }
 
   if (routeComplete) {
@@ -976,4 +988,58 @@ uint8_t apiNextStationNumber() {
 
 bool apiIsRouteComplete() {
   return routeComplete;
+}
+
+bool apiUsesRealtime() {
+  return AUTO_API_SOURCE == AutoApiSource::REALTIME;
+}
+
+bool apiIsRealtimePolling() {
+  if (!apiUsesRealtime()) {
+    return false;
+  }
+  portENTER_CRITICAL(&requestMux);
+  const bool active = realtimePollRequested || realtimePolling;
+  portEXIT_CRITICAL(&requestMux);
+  return active;
+}
+
+int32_t apiRealtimeSecondsUntilNextPoll() {
+  if (!apiUsesRealtime() || !autoMode || routeComplete || !timeIsReady()) {
+    return -1;
+  }
+
+  if (apiIsRealtimePolling()) {
+    return 0;
+  }
+
+  const uint32_t now = millis();
+  uint32_t waitMs = 0;
+  if (realtimePollStarted) {
+    const uint32_t elapsed = static_cast<uint32_t>(now - lastRealtimePollAt);
+    if (elapsed < REALTIME_API_POLL_INTERVAL_MS) {
+      waitMs = REALTIME_API_POLL_INTERVAL_MS - elapsed;
+    }
+  }
+  if (realtimeCooldownActive) {
+    const uint32_t elapsed = static_cast<uint32_t>(now - realtimeCooldownStartedAt);
+    if (elapsed < REALTIME_API_TRANSITION_COOLDOWN_MS) {
+      const uint32_t cooldownRemaining =
+          REALTIME_API_TRANSITION_COOLDOWN_MS - elapsed;
+      if (cooldownRemaining > waitMs) {
+        waitMs = cooldownRemaining;
+      }
+    }
+  }
+  return static_cast<int32_t>((waitMs + 999UL) / 1000UL);
+}
+
+uint32_t apiRealtimeRemainingRequests() {
+  if (!apiUsesRealtime()) {
+    return 0;
+  }
+  const uint32_t used = latestRealtimeUsageCount;
+  return used >= REALTIME_API_DAILY_LIMIT
+             ? 0
+             : REALTIME_API_DAILY_LIMIT - used;
 }

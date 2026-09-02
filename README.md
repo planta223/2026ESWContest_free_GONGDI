@@ -26,6 +26,7 @@ esp32_braille/
 ├── button.h/.cpp           # polling debounce와 LED 타이머
 ├── api.h/.cpp              # background HTTP, 시간표/실시간 AUTO 역 판정
 ├── api_usage.h/.cpp        # realtime 일일 호출 횟수 NVS 관리
+├── debug_log.h/.cpp        # Serial/WebSocket 공통 애플리케이션 로그 버퍼
 ├── wifi_manager.h/.cpp     # Wi-Fi/NTP/HTTP/WebSocket와 command queue
 ├── index_html.h            # PROGMEM 웹 디버깅 UI
 ├── legacy/esp32_main.ino   # 이식 전 reference; sketch compile 대상에서 제외
@@ -275,12 +276,13 @@ TIMETABLE 모드는 메인 `apiUpdate()`가 매초 `LEFTTIME + DEPARTURE_UPDATE_
 
 `api_usage.cpp`는 realtime HTTP 요청을 실제로 시도하기 직전에 일일 사용량을 NVS에 기록합니다. 재부팅 후에도 횟수가 유지되고 로컬 날짜가 바뀌면 자동으로 0부터 다시 시작합니다. 시간표 API 요청은 별도 키와 fallback 경로이므로 realtime 일일 사용량에 포함하지 않습니다.
 
-웹 UI는 `http://<ESP32-IP>/`의 `INDEX_HTML`이며 WebSocket endpoint는 `/ws`입니다.
+웹 UI는 `http://<ESP32-IP>/`의 `INDEX_HTML`이며 WebSocket endpoint는 `/ws`입니다. ESP32 애플리케이션 로그는 Serial과 웹 UI에 동시에 출력되며, UI에서 다음 realtime 호출까지 남은 시간과 오늘 남은 호출 횟수를 확인할 수 있습니다. 원격 재부팅 버튼은 WebSocket ACK를 보낸 뒤 ESP32를 재시작합니다.
 
 ```json
 {"cmd":"station","value":0}
 {"cmd":"auto"}
 {"cmd":"refresh"}
+{"cmd":"reboot"}
 ```
 
-WebSocket callback은 JSON을 고정 길이 FreeRTOS queue에 넣기만 합니다. `wifiUpdate()`가 메인 loop에서 `station`을 REMOTE 안내로 실행하고, `auto`로 API 자동 판정에 복귀하며, `refresh`로 background cache 갱신을 요청합니다. ACK는 `{"type":"ack",...}`이고 상태는 기존 `type=status`, `motor`, `speaker`, `vibration`, `button`, `activeIdx`, `mode`, `monitor`, `station` 필드를 유지하면서 `matrix`, `wifi`, `timetableReady`, `refreshing`을 추가합니다. `speaker`는 재생 여부가 아니라 실제 제공 가능한 `audioIsReady()` 즉 DFPlayer 준비 상태입니다.
+WebSocket callback은 JSON을 고정 길이 FreeRTOS queue에 넣기만 합니다. `wifiUpdate()`가 메인 loop에서 `station`을 REMOTE 안내로 실행하고, `auto`로 API 자동 판정에 복귀하며, `refresh`로 background cache 갱신을 요청하고, `reboot` ACK 뒤 ESP32를 재시작합니다. ACK는 `{"type":"ack",...}`, 애플리케이션 로그는 `{"type":"log","line":"..."}`입니다. 상태는 기존 필드를 유지하면서 `matrix`, `wifi`, `timetableReady`, `refreshing`, `realtime`, `realtimePolling`, `realtimeNextSec`, `apiRemaining`을 추가합니다. `speaker`는 재생 여부가 아니라 실제 제공 가능한 `audioIsReady()` 즉 DFPlayer 준비 상태입니다.

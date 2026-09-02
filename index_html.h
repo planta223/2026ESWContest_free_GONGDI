@@ -113,6 +113,8 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
     .ctrl{flex:1;padding:11px;border:none;border-radius:10px;font-size:13px;font-weight:600;cursor:pointer;}
     .ctrl.auto{background:var(--accent);color:#fff;}
     .ctrl.refresh{background:var(--accent-soft);color:var(--accent);}
+    .ctrl.reboot{background:#fdeaea;color:#b94747;border:1px solid #f3caca;}
+    .ctrl.reboot:hover{background:#f9dada;}
 
     /* 상태 모니터링 */
     .status-row{display:flex;align-items:center;justify-content:space-between;
@@ -182,6 +184,9 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
         <button class="ctrl auto"    onclick="send('auto')">자동 모드</button>
         <button class="ctrl refresh" onclick="send('refresh')">시간표 새로고침</button>
       </div>
+      <div class="row-btns">
+        <button class="ctrl reboot" onclick="requestReboot()">ESP32 원격 재부팅</button>
+      </div>
     </div>
 
     <!-- 상태 모니터링 -->
@@ -194,11 +199,13 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
       <div class="status-row"><span>진동</span>     <span class="dot" id="s-vibration"></span></div>
       <div class="status-row"><span>버튼 확인 LED</span><span class="dot" id="s-button"></span></div>
       <div class="status-row"><span>시간표/API</span><span class="mon-val" id="s-monitor">-</span></div>
+      <div class="status-row"><span>다음 realtime 호출</span><span class="mon-val" id="s-next-poll">-</span></div>
+      <div class="status-row"><span>오늘 남은 API 횟수</span><span class="mon-val" id="s-api-remaining">-</span></div>
     </div>
 
     <!-- 통신 로그 -->
     <div class="card full">
-      <h2>통신 로그 (ACK / 상태)</h2>
+      <h2>ESP32 로그 / 통신 로그</h2>
       <div id="log"></div>
     </div>
   </div>
@@ -283,6 +290,12 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
     log(`→ 명령 전송: ${cmd}`);
   }
 
+  function requestReboot(){
+    if(confirm('ESP32를 지금 재부팅할까요? WebSocket 연결이 잠시 끊어집니다.')){
+      send('reboot');
+    }
+  }
+
   ws.onopen = ()=>{ $('conn').textContent='연결됨'; $('conn').className='conn ok'; log('WebSocket 연결 성공'); };
   ws.onclose= ()=>{ $('conn').textContent='연결 끊김'; $('conn').className='conn no'; log('WebSocket 연결 종료'); };
 
@@ -313,6 +326,19 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
       setDot('s-vibration', m.vibration);
       setDot('s-button',    m.button);
       $('s-monitor').textContent = m.monitor;
+      $('s-next-poll').textContent = !m.realtime
+        ? '-'
+        : m.realtimePolling
+          ? '호출 중'
+          : Number(m.realtimeNextSec)>=0
+            ? `${m.realtimeNextSec}초`
+            : '대기';
+      $('s-api-remaining').textContent = m.realtime
+        ? `${m.apiRemaining}회`
+        : '-';
+    }
+    else if(m.type==='log'){
+      log(m.line || '');
     }
   };
 

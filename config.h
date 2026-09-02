@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 
+#include "debug_log.h"
+
 // =============================================================
 // Debug logging (set an item to 0 to silence that module)
 // =============================================================
@@ -56,7 +58,7 @@ constexpr char REALTIME_API_SERVICE[] = "realtimePosition";
 constexpr char REALTIME_SUBWAY_NAME_ENCODED[] = "2%ED%98%B8%EC%84%A0";  // 2호선
 constexpr uint16_t REALTIME_API_START_INDEX = 0;
 constexpr uint16_t REALTIME_API_END_INDEX = 1000;
-constexpr uint32_t REALTIME_API_POLL_INTERVAL_MS = 15000;
+constexpr uint32_t REALTIME_API_POLL_INTERVAL_MS = 1500000;
 constexpr uint32_t REALTIME_API_TRANSITION_COOLDOWN_MS = 45000;
 constexpr uint32_t REALTIME_API_DAILY_LIMIT = 1000;
 constexpr bool REALTIME_API_FALLBACK_TO_TIMETABLE = true;

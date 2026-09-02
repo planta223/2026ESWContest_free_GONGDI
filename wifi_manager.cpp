@@ -22,12 +22,17 @@
 namespace {
 
 constexpr size_t WEB_COMMAND_JSON_CAPACITY = 128;
-constexpr size_t WEB_STATUS_JSON_CAPACITY = 384;
+constexpr size_t WEB_STATUS_JSON_CAPACITY = 512;
+constexpr size_t WEB_LOG_JSON_CAPACITY = 512;
+constexpr size_t WEB_LOG_LINE_BUFFER_SIZE = 192;
+constexpr uint8_t WEB_LOG_LINES_PER_UPDATE = 4;
+constexpr uint32_t WEB_REBOOT_DELAY_MS = 750;
 
 enum class WebCommandType : uint8_t {
   STATION,
   AUTO_MODE,
   REFRESH,
+  REBOOT,
   STATUS,
   INVALID
 };
@@ -48,6 +53,8 @@ QueueHandle_t commandQueue = nullptr;
 bool wasConnected = false;
 uint32_t lastReconnectAt = 0;
 uint32_t lastStatusPushAt = 0;
+bool rebootScheduled = false;
+uint32_t rebootScheduledAt = 0;
 
 const char* commandName(WebCommandType type) {
   switch (type) {
@@ -57,6 +64,8 @@ const char* commandName(WebCommandType type) {
       return "auto";
     case WebCommandType::REFRESH:
       return "refresh";
+    case WebCommandType::REBOOT:
+      return "reboot";
     case WebCommandType::STATUS:
       return "status";
     default:
@@ -91,6 +100,8 @@ void parseWebCommand(uint32_t clientId, const uint8_t* data, size_t length) {
     queueCommand(WebCommandType::AUTO_MODE, value, clientId);
   } else if (strcmp(command, "refresh") == 0) {
     queueCommand(WebCommandType::REFRESH, value, clientId);
+  } else if (strcmp(command, "reboot") == 0) {
+    queueCommand(WebCommandType::REBOOT, value, clientId);
   } else {
     queueCommand(WebCommandType::INVALID, value, clientId);
   }
@@ -185,6 +196,10 @@ void broadcastStatus() {
   document["wifi"] = WiFi.status() == WL_CONNECTED;
   document["timetableReady"] = apiIsTimetableReady();
   document["refreshing"] = apiIsRefreshing();
+  document["realtime"] = apiUsesRealtime();
+  document["realtimePolling"] = apiIsRealtimePolling();
+  document["realtimeNextSec"] = apiRealtimeSecondsUntilNextPoll();
+  document["apiRemaining"] = apiRealtimeRemainingRequests();
 
   char output[WIFI_STATUS_JSON_BUFFER_SIZE] = {};
   serializeJson(document, output, sizeof(output));
@@ -214,11 +229,41 @@ bool executeCommand(const PendingWebCommand& command) {
       apiRequestRefresh();
       return true;
 
+    case WebCommandType::REBOOT:
+      if (rebootScheduled) {
+        return false;
+      }
+      rebootScheduled = true;
+      rebootScheduledAt = millis();
+#if DEBUG_GLOBAL
+      Serial.println(F("[SYSTEM] Remote reboot requested"));
+#endif
+      return true;
+
     case WebCommandType::STATUS:
       return true;
 
     default:
       return false;
+  }
+}
+
+void broadcastPendingLogs() {
+  if (webSocket.count() == 0) {
+    return;
+  }
+
+  char line[WEB_LOG_LINE_BUFFER_SIZE] = {};
+  for (uint8_t sent = 0;
+       sent < WEB_LOG_LINES_PER_UPDATE && debugLogPopLine(line, sizeof(line));
+       ++sent) {
+    StaticJsonDocument<WEB_LOG_JSON_CAPACITY> document;
+    document["type"] = "log";
+    document["line"] = line;
+
+    char output[WEB_LOG_JSON_CAPACITY] = {};
+    serializeJson(document, output, sizeof(output));
+    webSocket.textAll(output);
   }
 }
 
@@ -299,10 +344,21 @@ void wifiUpdate() {
 
   consumeWebCommands();
   webSocket.cleanupClients();
+  broadcastPendingLogs();
 
   if (static_cast<uint32_t>(now - lastStatusPushAt) >= STATUS_PUSH_INTERVAL) {
     lastStatusPushAt = now;
     broadcastStatus();
+  }
+
+  if (rebootScheduled
+      && static_cast<uint32_t>(now - rebootScheduledAt) >= WEB_REBOOT_DELAY_MS) {
+#if DEBUG_GLOBAL
+    Serial.println(F("[SYSTEM] Rebooting now"));
+#endif
+    broadcastPendingLogs();
+    delay(50);
+    ESP.restart();
   }
 }
 

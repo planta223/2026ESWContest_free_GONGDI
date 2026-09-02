@@ -15,3 +15,7 @@ StationId apiDetectedStation();
 uint16_t apiTrackedTrainNumber();
 uint8_t apiNextStationNumber();
 bool apiIsRouteComplete();
+bool apiUsesRealtime();
+bool apiIsRealtimePolling();
+int32_t apiRealtimeSecondsUntilNextPoll();
+uint32_t apiRealtimeRemainingRequests();
