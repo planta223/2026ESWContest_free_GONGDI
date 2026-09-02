@@ -1,6 +1,8 @@
-# DotJabi — ESP32 지하철 점자·음성·진동 안내 프로토타입
+# 점잡이 — ESP32 지하철 점자·음성·진동 안내 시스템
 
 ESP32 기반 지하철 손잡이 부착형 안내 모듈입니다. Serial Monitor, 웹 원격 선택, 서울 지하철 시간표/실시간 위치 API 자동 판정이 모두 `notifyStation(StationId)` 경계로 합쳐집니다.
+
+> **프로젝트 상태:** 2026년 9월 3일, 실제 하드웨어를 사용한 최종 통합 시연을 정상 완료했습니다. 아래 내용은 최종 시연 구성과 설정을 기준으로 합니다.
 
 하나의 역 이벤트가 다음 출력을 각각 시작합니다.
 
@@ -29,16 +31,14 @@ esp32_braille/
 ├── debug_log.h/.cpp        # Serial/WebSocket 공통 애플리케이션 로그 버퍼
 ├── wifi_manager.h/.cpp     # Wi-Fi/NTP/HTTP/WebSocket와 command queue
 ├── index_html.h            # PROGMEM 웹 디버깅 UI
-├── legacy/esp32_main.ino   # 이식 전 reference; sketch compile 대상에서 제외
-├── mp3/                    # DFPlayer용 0001~0005 음원
+├── mp3/                    # DFPlayer용 0001.mp3~0005.mp3 음원
 ├── doc/                    # 결선·핀아웃 참고 자료
 ├── THIRD_PARTY_NOTICES.md
 ├── LICENSES/
-├── README.md
-└── build/                  # 이전 ESP32 compile 산출물(소스 아님)
+└── README.md
 ```
 
-Arduino IDE는 폴더와 대표 `.ino` 파일의 이름이 같아야 하므로 현재 작업 폴더에 맞춰 `esp32_braille.ino`를 사용합니다. `legacy/`는 sketch root나 `src/`가 아니므로 그 안의 중복 `setup()/loop()`는 빌드되지 않습니다.
+Arduino IDE는 폴더와 대표 `.ino` 파일의 이름이 같아야 하므로 현재 작업 폴더에 맞춰 `esp32_braille.ino`를 사용합니다.
 
 `wifi_manager`라는 파일명은 의도적입니다. Windows의 대소문자 비구분 파일 시스템에서 로컬 `wifi.h`는 ESP32 코어의 `<WiFi.h>`와 충돌합니다.
 
@@ -143,19 +143,19 @@ DFPlayer가 인식할 카드(FAT32 권장)에 다음 경로와 이름으로 복�
 /mp3/0005.mp3  이번 역은 한양대역입니다.
 ```
 
-저장소의 `mp3/0_동대문역사공원.mp3` 같은 원본 이름은 참고용이며 DFPlayer의 `/mp3/000N.mp3` 규칙과 다릅니다. microSD에 복사할 때 위 이름으로 변경해야 합니다. 파일시스템의 정렬 문제를 줄이려면 빈 카드에 `0001`부터 순서대로 복사하는 것이 좋습니다.
+저장소의 `mp3/`에도 위 규칙에 맞춘 `0001.mp3`~`0005.mp3`가 들어 있습니다. 파일시스템의 정렬 문제를 줄이려면 빈 카드의 `/mp3` 폴더에 `0001`부터 순서대로 복사하는 것이 좋습니다.
 
 ## 역 데이터와 모터 위치
 
 | Serial | 역 | Track | 진동 | 이전 역에서의 간격 | 누적 목표 step |
 |---:|---|---:|:---:|---:|---:|
 | 1 | 동대문역사공원 | 1 | ON | - | 0 |
-| 2 | 신당 | 2 | ON | 819 | 819 |
-| 3 | 상왕십리 | 3 | ON | 819 | 1638 |
-| 4 | 왕십리 | 4 | **OFF** | 820 | 2458 |
-| 5 | 한양대 | 5 | ON | 819 | 3277 |
+| 2 | 신당 | 2 | ON | 16000 | 16000 |
+| 3 | 상왕십리 | 3 | ON | 16000 | 32000 |
+| 4 | 왕십리 | 4 | **OFF** | 14000 | 46000 |
+| 5 | 한양대 | 5 | ON | 16000 | 62000 |
 
-동대문역사공원은 항상 `0 step`입니다. 나머지 네 역의 목표는 `config.h`의 `MOTOR_INTERVAL_TO_*_STEPS` 4개를 앞에서부터 누적해 계산합니다. 기본값은 기존 등간격 목표와 같지만, 각 구간을 독립적으로 보정할 수 있습니다.
+동대문역사공원은 항상 `0 step`입니다. 나머지 네 역의 목표는 `config.h`의 `MOTOR_INTERVAL_TO_*_STEPS` 4개를 앞에서부터 누적해 계산합니다. 위 값은 최종 시연에서 사용한 보정값이며, 각 구간을 독립적으로 다시 조정할 수 있습니다.
 
 Home sensor가 없으므로 부팅할 때 모터의 물리 위치를 반드시 동대문역사공원 위치(0°)에 맞춰 두어야 합니다. 펌웨어는 부팅 위치를 `0 step`이라고 가정할 뿐 절대 위치를 측정하지 못합니다. 기구가 slip하거나 전원이 차단된 상태에서 움직이면 위치 기준이 어긋납니다.
 
@@ -167,7 +167,7 @@ Home sensor가 없으므로 부팅할 때 모터의 물리 위치를 반드시 �
 
 - 계산된 전체 폭이 32 pixel 이하인 역명: 정적 중앙 정렬
 - 계산된 전체 폭이 32 pixel을 초과하는 역명: 32-column 창을 1 pixel씩 이동
-- 각 8×8 한글 글리프는 기본적으로 반시계 방향 90° 회전
+- 최종 시연 설정에서는 각 8×8 한글 글리프를 원본 방향으로 표시
 - 정적 역명은 다음 역 전환까지 계속 표시, 긴 역명은 지속적으로 반복 scroll
 - scroll 간격과 밝기는 `config.h`에서 조정
 
@@ -179,10 +179,10 @@ FC-16 모듈의 조립 방향에 따라 글자가 좌우/상하 반전될 수 �
 #define MATRIX_HARDWARE_TYPE MD_MAX72XX::FC16_HW
 constexpr bool MATRIX_REVERSE_COLUMNS = true;
 constexpr bool MATRIX_FLIP_VERTICAL = false;
-constexpr bool MATRIX_ROTATE_GLYPHS_CCW = true;
+constexpr bool MATRIX_ROTATE_GLYPHS_CCW = false;
 ```
 
-`MATRIX_ROTATE_GLYPHS_CCW=false`로 바꾸면 원래 글리프 방향으로 되돌릴 수 있습니다. 이 회전은 각 8×8 글자에 적용되므로 역명 순서와 8×32 scroll 방향은 유지됩니다.
+글리프를 반시계 방향으로 90° 회전해야 하는 조립 방향이라면 `MATRIX_ROTATE_GLYPHS_CCW=true`로 바꿉니다. 이 회전은 각 8×8 글자에 적용되므로 역명 순서와 8×32 scroll 방향은 유지됩니다.
 
 SZH-EKAD-115은 `FC16_HW`, 장치 수 4가 맞습니다. MD_MAX72XX에서 FC-16 chain의 column 번호는 화면 오른쪽부터 증가하므로, 이 프로젝트의 일반적인 좌→우 좌표를 맞추기 위해 `MATRIX_REVERSE_COLUMNS=true`가 기본값입니다. 글자 순서까지 좌우가 뒤집혀 보이는 하드웨어 revision에서만 이 값을 바꾸십시오.
 
@@ -215,7 +215,9 @@ status            현재 역과 모든 모듈 상태
 
 `motor 1..5`의 명령 번호는 Serial 역 번호와 같고, 내부의 zero-based 논리 위치는 각각 Position 0..4입니다.
 
-## 권장 시험 순서
+## 시연 재현 및 점검 순서
+
+아래 순서의 모듈별 점검과 통합 동작을 거쳐 최종 정상 시연을 완료했습니다. 재조립하거나 설정을 변경했을 때도 같은 순서로 확인할 수 있습니다.
 
 1. **전원만 점검:** 멀티미터로 5V/약 3V 및 모든 공통 GND를 확인합니다.
 2. **Stepper:** `motor 1`~`motor 5`를 순서대로 입력해 위치와 방향을 확인합니다.
@@ -258,7 +260,9 @@ AUTO_API_SOURCE
 SUBWAY_API_BASE_URL / SUBWAY_API_KEY
 REALTIME_API_BASE_URL / REALTIME_API_KEY
 REALTIME_API_POLL_INTERVAL_MS
+REALTIME_DIAGNOSTICS_ENABLE
 REALTIME_API_TRANSITION_COOLDOWN_MS
+REALTIME_NEXT_STATION_UPDATE_DELAY_SEC
 REALTIME_API_DAILY_LIMIT
 REALTIME_API_FALLBACK_TO_TIMETABLE
 TRAIN_DIRECTION / DEPARTURE_UPDATE_DELAY_SEC[0..3] / STATION_WINDOW
@@ -270,13 +274,13 @@ STATUS_PUSH_INTERVAL
 
 ## Wi-Fi, API와 웹 UI
 
-Wi-Fi 연결과 NTP는 setup에서 기다리지 않고 비동기로 진행됩니다. `AUTO_API_SOURCE`의 기본값은 기존 동작을 유지하는 `AutoApiSource::TIMETABLE`이며, `AutoApiSource::REALTIME`로 바꾸면 서울시 `realtimePosition`을 사용합니다. 두 모드 모두 HTTP 요청과 JSON 파싱은 `api.cpp`의 FreeRTOS worker가 수행하고, worker는 `notifyStation()`이나 HW 모듈을 호출하지 않습니다.
+Wi-Fi 연결과 NTP는 setup에서 기다리지 않고 비동기로 진행됩니다. 최종 시연 설정인 `AUTO_API_SOURCE`의 기본값은 `AutoApiSource::REALTIME`이며 서울시 `realtimePosition`을 사용합니다. 필요하면 `AutoApiSource::TIMETABLE`로 바꿔 시간표 기반 판정만 사용할 수 있습니다. 두 모드 모두 HTTP 요청과 JSON 파싱은 `api.cpp`의 FreeRTOS worker가 수행하고, worker는 `notifyStation()`이나 HW 모듈을 호출하지 않습니다.
 
-TIMETABLE 모드는 메인 `apiUpdate()`가 매초 `LEFTTIME + DEPARTURE_UPDATE_DELAY_SEC[출발역]`과 현재 시각을 비교합니다. REALTIME 모드는 기본 15초마다 추적 중인 `TRAIN_NO`의 현재 역과 `trainSttus`를 확인하며, 현재 역의 출발 상태(`2`) 또는 다음 역의 전역출발 상태(`3`)가 확인되면 다음 역을 안내합니다. 다음 역의 진입·도착 상태만으로는 전환하지 않습니다. 역 전환 직후에는 기본 45초 동안 realtime polling을 쉬며, 실패하거나 일일 한도에 도달하면 준비된 시간표 cache로 fallback합니다.
+TIMETABLE 모드는 메인 `apiUpdate()`가 매초 `LEFTTIME + DEPARTURE_UPDATE_DELAY_SEC[출발역]`과 현재 시각을 비교합니다. REALTIME 모드는 기본 5초마다 동대문역사공원에서 처음 포착한 열차 번호를 고정해 `trainSttus`를 추적합니다. 현재 역의 출발 상태(`2`)가 확인되거나 출발 상태를 놓친 채 해당 열차가 다음 역에서 처음 관측되면 다음 역을 안내합니다. 최종 시연값은 전환 지연과 전환 후 cooldown이 모두 0초입니다. 실시간 요청이 실패하거나 일일 한도에 도달하면 준비된 시간표 cache로 fallback합니다.
 
 `api_usage.cpp`는 realtime HTTP 요청을 실제로 시도하기 직전에 일일 사용량을 NVS에 기록합니다. 재부팅 후에도 횟수가 유지되고 로컬 날짜가 바뀌면 자동으로 0부터 다시 시작합니다. 시간표 API 요청은 별도 키와 fallback 경로이므로 realtime 일일 사용량에 포함하지 않습니다.
 
-웹 UI는 `http://<ESP32-IP>/`의 `INDEX_HTML`이며 WebSocket endpoint는 `/ws`입니다. ESP32 애플리케이션 로그는 Serial과 웹 UI에 동시에 출력되며, UI에서 다음 realtime 호출까지 남은 시간과 오늘 남은 호출 횟수를 확인할 수 있습니다. 원격 재부팅 버튼은 WebSocket ACK를 보낸 뒤 ESP32를 재시작합니다.
+웹 UI는 `http://<ESP32-IP>/`의 `INDEX_HTML`이며 WebSocket endpoint는 `/ws`입니다. ESP32 애플리케이션 로그는 Serial과 웹 UI에 동시에 출력되며, UI에서 다음 realtime 호출까지 남은 시간과 오늘 남은 호출 횟수를 확인할 수 있습니다. `REALTIME_DIAGNOSTICS_ENABLE=true`일 때는 NTP 시각을 기준으로 실제 열차 출발과 안내방송 시점을 기록하는 진단 패널도 표시됩니다. 원격 재부팅 버튼은 WebSocket ACK를 보낸 뒤 ESP32를 재시작합니다.
 
 ```json
 {"cmd":"station","value":0}
