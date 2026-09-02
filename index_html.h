@@ -52,6 +52,46 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
            background:var(--accent-soft);color:var(--accent);}
     .badge.remote{background:#fff0e0;color:#c98329;}
 
+    /* 5개 역 노선 및 브라우저 전용 열차 애니메이션 */
+    .route-map{position:relative;height:104px;margin:2px 0 8px;overflow:hidden;}
+    .route-line{position:absolute;top:32px;left:10%;right:10%;height:4px;
+                border-radius:4px;background:var(--accent-soft);}
+    .route-line::before{content:"";position:absolute;inset:0;border-radius:inherit;
+                        background:linear-gradient(90deg,var(--accent),#88a8d3);opacity:.55;}
+    .route-stops{position:absolute;inset:0;display:grid;grid-template-columns:repeat(5,1fr);}
+    .route-stop{position:relative;text-align:center;color:var(--muted);min-width:0;}
+    .route-node{position:absolute;top:25px;left:50%;width:18px;height:18px;
+                transform:translateX(-50%);border:4px solid var(--accent-soft);
+                border-radius:50%;background:#fff;transition:.25s;z-index:2;}
+    .route-label{display:block;margin:53px auto 0;width:92%;font-size:11px;
+                 line-height:1.3;font-weight:600;word-break:keep-all;transition:.25s;}
+    .route-stop.current .route-node{border-color:var(--accent);background:var(--accent);
+                                    box-shadow:0 0 0 5px rgba(91,134,196,.15);}
+    .route-stop.current .route-label{color:#2c4a7c;font-weight:800;}
+    .route-stop.next .route-node{border-color:var(--accent);}
+    .route-stop.next .route-label{color:var(--accent);}
+    .route-train{--route-from:10%;--route-to:30%;position:absolute;top:1px;left:var(--route-from);
+                 width:34px;height:25px;transform:translateX(-50%);border:2px solid #fff;
+                 border-radius:8px 8px 6px 6px;background:var(--accent);color:var(--accent);
+                 box-shadow:0 3px 8px rgba(50,75,115,.28);z-index:4;opacity:0;}
+    .route-train::before{content:"";position:absolute;left:5px;right:5px;top:4px;height:8px;
+                         border-radius:3px;background:#eaf2fb;
+                         box-shadow:inset 8px 0 0 #bad0e9,inset -8px 0 0 #bad0e9;}
+    .route-train::after{content:"";position:absolute;left:5px;bottom:-5px;width:6px;height:6px;
+                        border-radius:50%;background:#324b73;box-shadow:17px 0 #324b73;}
+    .route-train.moving{animation:routeTravel 7s ease-in-out infinite;}
+    .route-train.parked{left:var(--route-from);opacity:1;}
+    @keyframes routeTravel{
+      0%{left:var(--route-from);opacity:0;}
+      6%,18%{left:var(--route-from);opacity:1;}
+      78%,88%{left:var(--route-to);opacity:1;}
+      96%,100%{left:var(--route-to);opacity:0;}
+    }
+    .route-summary{display:flex;align-items:center;justify-content:center;gap:10px;
+                   min-height:22px;color:var(--muted);font-size:12px;text-align:center;}
+    .route-summary strong{color:#2c4a7c;font-size:13px;}
+    .route-arrow{color:var(--accent);font-weight:800;}
+
     /* 역 버튼들 */
     .stations{display:grid;
               grid-template-columns:repeat(2,minmax(0,1fr));
@@ -87,6 +127,18 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
     #log{background:#f7f9fc;border:1px solid var(--line);border-radius:10px;padding:10px;
          height:150px;overflow-y:auto;font-family:'Consolas',monospace;font-size:12px;color:#41506a;}
     #log div{margin:2px 0;}
+    @media(max-width:480px){
+      body{padding:10px;}
+      .card{padding:14px;}
+      .route-map{height:110px;}
+      .route-label{width:86%;font-size:10px;word-break:break-all;}
+      .route-train{width:31px;height:23px;}
+      .route-summary{gap:6px;font-size:11px;}
+      .route-summary strong{font-size:12px;}
+    }
+    @media(prefers-reduced-motion:reduce){
+      .route-train.moving{animation:none;left:var(--route-from);opacity:1;}
+    }
   </style>
 </head>
 <body>
@@ -103,6 +155,21 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
       <div class="label">현재 안내 역</div>
       <div class="name" id="nowName">정보 수신 대기…</div>
       <span class="badge" id="modeBadge">AUTO</span>
+    </div>
+  </div>
+
+  <!-- 5개 역 노선: 애니메이션은 activeIdx만 사용해 브라우저에서 처리 -->
+  <div class="card full" style="margin-bottom:16px;">
+    <h2>5개 역 노선</h2>
+    <div class="route-map" aria-label="동대문역사공원부터 한양대까지 노선">
+      <div class="route-line"></div>
+      <div class="route-stops" id="routeStops"></div>
+      <div class="route-train" id="routeTrain" role="img" aria-label="지하철"></div>
+    </div>
+    <div class="route-summary" aria-live="polite">
+      <span>현재 <strong id="routeCurrent">정보 수신 대기</strong></span>
+      <span class="route-arrow" id="routeArrow">→</span>
+      <span>다음 <strong id="routeNext">-</strong></span>
     </div>
   </div>
 
@@ -143,6 +210,7 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
 
   const ws = new WebSocket(`ws://${location.host}/ws`);
   const $  = id => document.getElementById(id);
+  let lastRouteIndex = -2;
 
   function log(msg){
     const d=document.createElement('div');
@@ -158,6 +226,56 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
                     log(`→ 역 선택: ${nm}역`); };
     $('stations').appendChild(b);
   });
+
+  // 노선 역 생성 및 activeIdx 기반 브라우저 애니메이션
+  STATIONS.forEach((nm,i)=>{
+    const stop=document.createElement('div');
+    stop.className='route-stop'; stop.id='route-stop-'+i;
+    stop.innerHTML=`<span class="route-node"></span><span class="route-label">${nm}</span>`;
+    $('routeStops').appendChild(stop);
+  });
+
+  function updateRoute(activeIdx){
+    const parsed=Number(activeIdx);
+    const valid=Number.isInteger(parsed) && parsed>=0 && parsed<STATIONS.length;
+    const current=valid ? parsed : -1;
+    if(current===lastRouteIndex) return;
+    const next=valid && current+1<STATIONS.length ? current+1 : -1;
+
+    STATIONS.forEach((_,i)=>{
+      const stop=$('route-stop-'+i);
+      stop.classList.toggle('current', valid && i===current);
+      stop.classList.toggle('next', i===next);
+      if(valid && i===current) stop.setAttribute('aria-current','step');
+      else stop.removeAttribute('aria-current');
+    });
+
+    $('routeCurrent').textContent=valid ? STATIONS[current] : '정보 수신 대기';
+    $('routeNext').textContent=next>=0 ? STATIONS[next] : (valid ? '종착역' : '-');
+    $('routeArrow').style.visibility=valid ? 'visible' : 'hidden';
+
+    const train=$('routeTrain');
+    if(!valid){
+      train.className='route-train';
+      lastRouteIndex=current;
+      return;
+    }
+
+    const from=10+current*20;
+    const to=next>=0 ? 10+next*20 : from;
+    train.style.setProperty('--route-from',from+'%');
+    train.style.setProperty('--route-to',to+'%');
+    train.setAttribute('aria-label',next>=0
+      ? `${STATIONS[current]}에서 ${STATIONS[next]} 방향으로 이동하는 지하철`
+      : `${STATIONS[current]} 종착역에 정차한 지하철`);
+
+    train.className='route-train';
+    void train.offsetWidth;
+    train.classList.add(next>=0 ? 'moving' : 'parked');
+    lastRouteIndex=current;
+  }
+
+  updateRoute(-1);
 
   // 제어 명령 전송 (auto / refresh)
   function send(cmd){
@@ -185,6 +303,7 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
       STATIONS.forEach((_,i)=>{
         $('st-'+i).classList.toggle('active', i===m.activeIdx);
       });
+      updateRoute(m.activeIdx);
 
       // 상태 등
       $('s-mode').textContent = (m.mode==='REMOTE'?'원격 우선':'자동 시간표');
