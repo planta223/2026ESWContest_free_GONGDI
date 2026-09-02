@@ -83,7 +83,6 @@ void replayCurrentStation() {
 #if DEBUG_GLOBAL
   Serial.printf("[SYSTEM] Replay current station: %s\n", info->debugName);
 #endif
-  matrixShowStation(currentStation);
   audioPlayStation(currentStation);
   if (info->vibrationEnabled) {
     vibrationStart();
