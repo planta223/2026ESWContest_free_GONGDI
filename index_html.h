@@ -169,9 +169,9 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
       <div class="route-train" id="routeTrain" role="img" aria-label="지하철"></div>
     </div>
     <div class="route-summary" aria-live="polite">
-      <span>현재 <strong id="routeCurrent">정보 수신 대기</strong></span>
+      <span>이전 <strong id="routePrevious">-</strong></span>
       <span class="route-arrow" id="routeArrow">→</span>
-      <span>다음 <strong id="routeNext">-</strong></span>
+      <span>현재 <strong id="routeCurrent">정보 수신 대기</strong></span>
     </div>
   </div>
 
@@ -247,19 +247,19 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
     const valid=Number.isInteger(parsed) && parsed>=0 && parsed<STATIONS.length;
     const current=valid ? parsed : -1;
     if(current===lastRouteIndex) return;
-    const next=valid && current+1<STATIONS.length ? current+1 : -1;
+    const previous=valid && current>0 ? current-1 : -1;
 
     STATIONS.forEach((_,i)=>{
       const stop=$('route-stop-'+i);
       stop.classList.toggle('current', valid && i===current);
-      stop.classList.toggle('next', i===next);
+      stop.classList.toggle('next', i===previous);
       if(valid && i===current) stop.setAttribute('aria-current','step');
       else stop.removeAttribute('aria-current');
     });
 
+    $('routePrevious').textContent=previous>=0 ? STATIONS[previous] : '-';
     $('routeCurrent').textContent=valid ? STATIONS[current] : '정보 수신 대기';
-    $('routeNext').textContent=next>=0 ? STATIONS[next] : (valid ? '종착역' : '-');
-    $('routeArrow').style.visibility=valid ? 'visible' : 'hidden';
+    $('routeArrow').style.visibility=previous>=0 ? 'visible' : 'hidden';
 
     const train=$('routeTrain');
     if(!valid){
@@ -268,15 +268,13 @@ const char INDEX_HTML[] PROGMEM = R"HTML(
       return;
     }
 
-    // Keep the train parked before the initial departure and at the terminal.
-    // Intermediate stations retain the original repeating travel animation.
-    const moving=current>0 && next>=0;
-    const from=10+current*20;
-    const to=moving ? 10+next*20 : from;
+    const moving=previous>=0;
+    const from=10+(moving ? previous : current)*20;
+    const to=10+current*20;
     train.style.setProperty('--route-from',from+'%');
     train.style.setProperty('--route-to',to+'%');
     train.setAttribute('aria-label',moving
-      ? `${STATIONS[current]}에서 ${STATIONS[next]} 방향으로 이동하는 지하철`
+      ? `${STATIONS[previous]}에서 ${STATIONS[current]} 방향으로 이동하는 지하철`
       : `${STATIONS[current]}에 정차한 지하철`);
 
     train.className='route-train';
