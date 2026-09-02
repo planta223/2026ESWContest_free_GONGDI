@@ -23,6 +23,7 @@ constexpr size_t API_FILTER_JSON_CAPACITY = 384;
 constexpr size_t REALTIME_FILTER_JSON_CAPACITY = 512;
 constexpr uint16_t INVALID_TRAIN_NUMBER = 0;
 constexpr uint8_t REALTIME_STATUS_DEPARTED = 2;
+constexpr uint8_t REALTIME_STATUS_PREVIOUS_STATION_DEPARTED = 3;
 constexpr size_t DEPARTURE_UPDATE_DELAY_COUNT =
     sizeof(DEPARTURE_UPDATE_DELAY_SEC) / sizeof(DEPARTURE_UPDATE_DELAY_SEC[0]);
 
@@ -786,7 +787,9 @@ void updateFromRealtime(const RealtimePollResult& result, uint32_t now) {
   const bool departureConfirmed =
       (observedStationNumber == expectedDepartureNumber
        && observation.trainStatus == REALTIME_STATUS_DEPARTED)
-      || observedStationNumber > expectedDepartureNumber;
+      || (observedStationNumber == expectedDepartureNumber + 1
+          && observation.trainStatus
+                 == REALTIME_STATUS_PREVIOUS_STATION_DEPARTED);
   if (departureConfirmed) {
     advanceAfterDeparture(
         stationIdFromNumber(expectedDepartureNumber), now);

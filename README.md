@@ -271,7 +271,7 @@ STATUS_PUSH_INTERVAL
 
 Wi-Fi 연결과 NTP는 setup에서 기다리지 않고 비동기로 진행됩니다. `AUTO_API_SOURCE`의 기본값은 기존 동작을 유지하는 `AutoApiSource::TIMETABLE`이며, `AutoApiSource::REALTIME`로 바꾸면 서울시 `realtimePosition`을 사용합니다. 두 모드 모두 HTTP 요청과 JSON 파싱은 `api.cpp`의 FreeRTOS worker가 수행하고, worker는 `notifyStation()`이나 HW 모듈을 호출하지 않습니다.
 
-TIMETABLE 모드는 메인 `apiUpdate()`가 매초 `LEFTTIME + DEPARTURE_UPDATE_DELAY_SEC[출발역]`과 현재 시각을 비교합니다. REALTIME 모드는 기본 15초마다 추적 중인 `TRAIN_NO`의 현재 역과 `trainSttus`를 확인하며, 출발 상태(`2`) 또는 다음 역으로 전진한 사실이 확인되면 다음 역을 안내합니다. 역 전환 직후에는 기본 45초 동안 realtime polling을 쉬며, 실패하거나 일일 한도에 도달하면 준비된 시간표 cache로 fallback합니다.
+TIMETABLE 모드는 메인 `apiUpdate()`가 매초 `LEFTTIME + DEPARTURE_UPDATE_DELAY_SEC[출발역]`과 현재 시각을 비교합니다. REALTIME 모드는 기본 15초마다 추적 중인 `TRAIN_NO`의 현재 역과 `trainSttus`를 확인하며, 현재 역의 출발 상태(`2`) 또는 다음 역의 전역출발 상태(`3`)가 확인되면 다음 역을 안내합니다. 다음 역의 진입·도착 상태만으로는 전환하지 않습니다. 역 전환 직후에는 기본 45초 동안 realtime polling을 쉬며, 실패하거나 일일 한도에 도달하면 준비된 시간표 cache로 fallback합니다.
 
 `api_usage.cpp`는 realtime HTTP 요청을 실제로 시도하기 직전에 일일 사용량을 NVS에 기록합니다. 재부팅 후에도 횟수가 유지되고 로컬 날짜가 바뀌면 자동으로 0부터 다시 시작합니다. 시간표 API 요청은 별도 키와 fallback 경로이므로 realtime 일일 사용량에 포함하지 않습니다.
 
