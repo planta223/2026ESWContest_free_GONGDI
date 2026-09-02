@@ -44,7 +44,9 @@ constexpr char SUBWAY_API_SERVICE[] = "SearchSTNTimeTableByFRCodeService";
 constexpr uint8_t TRAIN_DIRECTION = 1;  // 1=up/inner, 2=down/outer
 // AUTO waits at this station, then follows only the first detected TRAIN_NO.
 constexpr uint8_t AUTO_ROUTE_START_STATION_NUMBER = 1;  // 1=205, Dongdaemun History & Culture Park
-constexpr int32_t STATION_WINDOW = 90;  // seconds before/after arrival
+// Shift the next-station update from LEFTTIME; positive=late, negative=early.
+constexpr int32_t DEPARTURE_UPDATE_DELAY_SEC = 0;
+constexpr int32_t STATION_WINDOW = 90;  // seconds allowed after the update time
 constexpr uint16_t MAX_TIMES = 320;
 
 constexpr uint32_t API_STATION_CHECK_INTERVAL_MS = 1000;

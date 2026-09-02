@@ -24,11 +24,12 @@ constexpr uint16_t INVALID_TRAIN_NUMBER = 0;
 static_assert(AUTO_ROUTE_START_STATION_NUMBER >= 1
                   && AUTO_ROUTE_START_STATION_NUMBER <= STATION_COUNT,
               "AUTO route start station must be in the station table");
+static_assert(STATION_WINDOW >= 0, "Station window must not be negative");
 
 struct TimetableCache {
-  uint32_t arrivalSeconds[STATION_COUNT][MAX_TIMES];
+  uint32_t departureUpdateSeconds[STATION_COUNT][MAX_TIMES];
   uint16_t trainNumbers[STATION_COUNT][MAX_TIMES];
-  uint16_t arrivalCount[STATION_COUNT];
+  uint16_t departureCount[STATION_COUNT];
   bool ready;
 };
 
@@ -78,7 +79,7 @@ uint8_t weekTag(const tm& localTime) {
   return 1;
 }
 
-bool parseArrivalTime(const char* value, uint32_t& seconds) {
+bool parseDepartureTime(const char* value, uint32_t& seconds) {
   int hour = 0;
   int minute = 0;
   int second = 0;
@@ -94,6 +95,16 @@ bool parseArrivalTime(const char* value, uint32_t& seconds) {
   seconds = static_cast<uint32_t>(hour * 3600L + minute * 60L + second)
             % SECONDS_PER_DAY;
   return true;
+}
+
+uint32_t departureUpdateTime(uint32_t departureSeconds) {
+  int64_t adjustedSeconds = static_cast<int64_t>(departureSeconds)
+                            + DEPARTURE_UPDATE_DELAY_SEC;
+  adjustedSeconds %= static_cast<int64_t>(SECONDS_PER_DAY);
+  if (adjustedSeconds < 0) {
+    adjustedSeconds += SECONDS_PER_DAY;
+  }
+  return static_cast<uint32_t>(adjustedSeconds);
 }
 
 bool parseTrainNumber(const char* value, uint16_t& trainNumber) {
@@ -120,7 +131,7 @@ bool fetchTimetable(uint8_t stationIndex,
     return false;
   }
 
-  destination.arrivalCount[stationIndex] = 0;
+  destination.departureCount[stationIndex] = 0;
 
   String url;
   url.reserve(API_URL_RESERVE_SIZE);
@@ -162,7 +173,7 @@ bool fetchTimetable(uint8_t stationIndex,
   }
 
   StaticJsonDocument<API_FILTER_JSON_CAPACITY> filter;
-  filter[SUBWAY_API_SERVICE]["row"][0]["ARRIVETIME"] = true;
+  filter[SUBWAY_API_SERVICE]["row"][0]["LEFTTIME"] = true;
   filter[SUBWAY_API_SERVICE]["row"][0]["TRAIN_NO"] = true;
   DynamicJsonDocument document(API_JSON_DOCUMENT_CAPACITY);
   const DeserializationError error = deserializeJson(
@@ -188,25 +199,26 @@ bool fetchTimetable(uint8_t stationIndex,
   }
 
   for (JsonObject row : rows) {
-    if (destination.arrivalCount[stationIndex] >= MAX_TIMES) {
+    if (destination.departureCount[stationIndex] >= MAX_TIMES) {
       break;
     }
     uint32_t seconds = 0;
     uint16_t trainNumber = INVALID_TRAIN_NUMBER;
-    if (parseArrivalTime(row["ARRIVETIME"] | "", seconds)
+    if (parseDepartureTime(row["LEFTTIME"] | "", seconds)
         && parseTrainNumber(row["TRAIN_NO"] | "", trainNumber)) {
-      const uint16_t arrivalIndex = destination.arrivalCount[stationIndex]++;
-      destination.arrivalSeconds[stationIndex][arrivalIndex] = seconds;
-      destination.trainNumbers[stationIndex][arrivalIndex] = trainNumber;
+      const uint16_t departureIndex = destination.departureCount[stationIndex]++;
+      destination.departureUpdateSeconds[stationIndex][departureIndex] =
+          departureUpdateTime(seconds);
+      destination.trainNumbers[stationIndex][departureIndex] = trainNumber;
     }
   }
   http.end();
 
 #if DEBUG_API
-  Serial.printf("[API] %s(%s): %u arrivals\n",
+  Serial.printf("[API] %s(%s): %u departures\n",
                 station->name,
                 station->subwayCode,
-                destination.arrivalCount[stationIndex]);
+                destination.departureCount[stationIndex]);
 #endif
   return true;
 }
@@ -302,12 +314,9 @@ void apiWorkerTask(void*) {
   }
 }
 
-uint32_t circularTimeDifference(uint32_t lhs, uint32_t rhs) {
-  uint32_t difference = lhs > rhs ? lhs - rhs : rhs - lhs;
-  if (difference > SECONDS_PER_DAY / 2) {
-    difference = SECONDS_PER_DAY - difference;
-  }
-  return difference;
+uint32_t elapsedSecondsSince(uint32_t earlier, uint32_t later) {
+  return later >= earlier ? later - earlier
+                          : SECONDS_PER_DAY - earlier + later;
 }
 
 TimetableMatch findClosestTimetableMatch(uint32_t nowSeconds,
@@ -332,17 +341,17 @@ TimetableMatch findClosestTimetableMatch(uint32_t nowSeconds,
     for (uint8_t stationIndex = firstStationIndex;
          stationIndex < stationLimit;
          ++stationIndex) {
-      for (uint16_t arrivalIndex = 0;
-           arrivalIndex < cache.arrivalCount[stationIndex];
-           ++arrivalIndex) {
+      for (uint16_t departureIndex = 0;
+           departureIndex < cache.departureCount[stationIndex];
+           ++departureIndex) {
         const uint16_t candidateTrainNumber =
-            cache.trainNumbers[stationIndex][arrivalIndex];
+            cache.trainNumbers[stationIndex][departureIndex];
         if (requiredTrainNumber != INVALID_TRAIN_NUMBER
             && candidateTrainNumber != requiredTrainNumber) {
           continue;
         }
-        const uint32_t difference = circularTimeDifference(
-            cache.arrivalSeconds[stationIndex][arrivalIndex], nowSeconds);
+        const uint32_t difference = elapsedSecondsSince(
+            cache.departureUpdateSeconds[stationIndex][departureIndex], nowSeconds);
         if (difference < bestDifference) {
           bestDifference = difference;
           bestStation = stationIdFromNumber(static_cast<uint8_t>(stationIndex + 1));
@@ -438,22 +447,28 @@ void apiUpdate() {
 #endif
   }
 
-  const StationId expectedStation = stationIdFromNumber(nextStationIndex + 1);
-  if (match.station != expectedStation) {
+  const StationId expectedDepartureStation = stationIdFromNumber(nextStationIndex + 1);
+  if (match.station != expectedDepartureStation) {
+    return;
+  }
+
+  const StationId followingStation = stationIdFromNumber(nextStationIndex + 2);
+  if (followingStation == StationId::INVALID) {
+    routeComplete = true;
     return;
   }
 
 #if DEBUG_API
-  Serial.printf("[API] Train %u station %u/%u\n",
+  Serial.printf("[API] Train %u departed station %u; update to station %u\n",
                 trackedTrainNumber,
                 static_cast<unsigned>(nextStationIndex + 1),
-                static_cast<unsigned>(STATION_COUNT));
+                static_cast<unsigned>(nextStationIndex + 2));
 #endif
   // The worker only publishes cache data. Hardware fan-out remains in loop().
-  notifyStation(match.station);
+  notifyStation(followingStation);
 
   ++nextStationIndex;
-  if (nextStationIndex >= STATION_COUNT) {
+  if (nextStationIndex + 1 >= STATION_COUNT) {
     routeComplete = true;
 #if DEBUG_API
     Serial.printf("[API] Train %u route complete\n", trackedTrainNumber);
@@ -513,8 +528,8 @@ uint16_t apiTrackedTrainNumber() {
 }
 
 uint8_t apiNextStationNumber() {
-  return nextStationIndex < STATION_COUNT
-             ? static_cast<uint8_t>(nextStationIndex + 1)
+  return !routeComplete && nextStationIndex + 1 < STATION_COUNT
+             ? static_cast<uint8_t>(nextStationIndex + 2)
              : 0;
 }
 
