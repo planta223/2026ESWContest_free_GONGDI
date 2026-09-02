@@ -237,7 +237,7 @@ void handleSerialInput() {
 
 void printHelp() {
   Serial.println();
-  Serial.println(F("=== DotJabi Debug Commands ==="));
+  Serial.println(F("=== 점잡이 Debug Commands ==="));
   Serial.println(F("1~5              Station integrated test"));
   Serial.println(F("motor 1..5       Move stepper to station position"));
   Serial.println(F("vib              Run vibration timer"));
@@ -250,7 +250,7 @@ void printHelp() {
 
 void printStatus() {
   const StationInfo* info = getStationInfo(currentStation);
-  Serial.println(F("=== DotJabi Status ==="));
+  Serial.println(F("=== 점잡이 Status ==="));
   if (info == nullptr) {
     Serial.println(F("Current station : NONE"));
   } else {
@@ -303,7 +303,7 @@ void setup() {
   }
 
   Serial.println();
-  Serial.println(F("[SYSTEM] DotJabi starting"));
+  Serial.println(F("[SYSTEM] 점잡이 starting"));
 
   motorBegin();
   vibrationBegin();
