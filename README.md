@@ -1,8 +1,12 @@
 # 점잡이 — ESP32 지하철 점자·음성·진동 안내 시스템
 
-ESP32 기반 지하철 손잡이 부착형 안내 모듈입니다. Serial Monitor, 웹 원격 선택, 서울 지하철 시간표/실시간 위치 API 자동 판정이 모두 `notifyStation(StationId)` 경계로 합쳐집니다.
+> **Status:** Completed on 2026-09-03
 
-> **프로젝트 상태:** 2026년 9월 3일, 실제 하드웨어를 사용한 최종 통합 시연을 정상 완료했습니다. 아래 내용은 최종 시연 구성과 설정을 기준으로 합니다.
+<a href="https://www.youtube.com/watch?v=CibHuSQRTOM">
+  <img src="https://img.youtube.com/vi/CibHuSQRTOM/maxresdefault.jpg" width="600">
+</a>
+
+ESP32 기반 지하철 손잡이 부착형 안내 모듈입니다. Serial Monitor, 웹 원격 선택, 서울 지하철 시간표/실시간 위치 API 자동 판정이 모두 `notifyStation(StationId)` 경계로 합쳐집니다.
 
 하나의 역 이벤트가 다음 출력을 각각 시작합니다.
 
